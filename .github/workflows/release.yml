@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  setup:
+    name: Setup
+    if: github.event.base_ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Get version
+        id: get_version
+        run: echo version=${GITHUB_REF/refs\/tags\//} >> $GITHUB_OUTPUT
+
+  container:
+    name: Build and upload container
+    needs:
+      - setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: mr-smithers-excellent/docker-build-push@v5
+        name: Build & push the Docker image
+        with:
+          registry: ghcr.io
+          username: ${{ secrets.GHCR_USER }}
+          password: ${{ secrets.GHCR_TOKEN }}
+          image: tellama
+          tags: latest, ${{ needs.setup.outputs.version }}
+
+  create-release:
+    name: Create release
+    needs:
+      - setup
+      - container
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ needs.setup.outputs.version }}
+          name: ${{ needs.setup.outputs.version }}
+          draft: true
+          prerelease: false
