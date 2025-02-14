@@ -4,4 +4,5 @@ COPY . /app
 WORKDIR /app
 RUN pip install . && rm -rf /app
 
+WORKDIR /data
 ENTRYPOINT ["python", "-m", "tellama"]

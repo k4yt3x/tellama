@@ -20,16 +20,30 @@ The official image is hosted at [ghcr.io/k4yt3x/tellama:latest](https://github.c
 To pass options with environment variables:
 
 ```bash
-docker run --network=host \
+docker run \
+  --network=host \
+  -v $PWD:/data \
   -e TELEGRAM_TOKEN="YOUR_TELEGRAM_BOT_TOKEN" \
   -e OLLAMA_MODEL="YourModelName" \
+  ghcr.io/k4yt3x/tellama:latest
+```
+
+You can also save the environment variables in a `.env` file to make things easier:
+
+```bash
+docker run \
+  --network=host \
+  -v $PWD:/data \
+  --env-file .env \
   ghcr.io/k4yt3x/tellama:latest
 ```
 
 To pass options with command-line arguments:
 
 ```bash
-docker run --network=host \
+docker run \
+  --network=host \
+  -v $PWD:/data \
   ghcr.io/k4yt3x/tellama:latest \
   --telegram-token="YOUR_TELEGRAM_BOT_TOKEN" \
   --model="YourModelName"
