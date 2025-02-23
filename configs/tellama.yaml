@@ -1,0 +1,52 @@
+# The Telegram Bot API token
+telegram_bot_token: YOUR_TELEGRAM_BOT_TOKEN
+
+# Path to the SQLite3 database
+database_path: tellama.db
+
+# The maximum number of history messages to fetch from the database
+history_fetch_limit: 10000
+
+# Ollama options
+ollama:
+  # The Ollama host
+  host: http://localhost:11434
+
+  # The model used to generate responses
+  model: llama3.3:70b
+
+  # Ollama request options
+  options:
+    # num_ctx: 2048
+    # num_keep: 0
+    # seed: 42
+    # num_predict: 100
+    # top_k: 40
+    # top_p: 0.9
+    # min_p: 0.05
+    # typical_p: 1.0
+    # repeat_last_n: 64
+    # temperature: 0.8
+    # repeat_penalty: 1.1
+    # presence_penalty: 0.0
+    # frequency_penalty: 0.0
+    # mirostat: 0
+    # mirostat_tau: 5.0
+    # mirostat_eta: 0.1
+    # max_new_tokens: 512
+    # stop: ["</stop>"]
+
+# System response messages
+messages:
+  private_chat_disallowed: "Sorry, you don't have permission to chat with me."
+  internal_error: "An internal error occurred. Please try again later."
+
+# The template used to render content sent to Ollama
+template: >-
+  {{range .}}<|start_header_id|>{{.Role}}
+  {{if eq .Role "user"}}first_name="{{.FirstName}}"
+  {{if .LastName}}last_name="{{.LastName}}"{{end}}
+  {{if .Username}}username="@{{.Username}}"{{end}}{{end}}<|end_header_id|>
+
+
+  {{.Content}}<|eot_id|>{{end}}<|start_header_id|>assistant<|end_header_id|>
