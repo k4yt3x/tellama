@@ -3,7 +3,7 @@
 **Tellama** is a lightweight bot that integrates LLMs with Telegram's bot API. It allows you to chat with your favorite language model in Telegram private or group chats.
 
 > [!IMPORTANT]
-> Tellama is still in early stages of development. The current version is finished in just two afternoons. You may run into bugs, unexpected behavior, or incomplete documentation. Please report any problems you encounter by [opening an issue](https://github.com/k4yt3x/tellama/issues/new).
+> Tellama is still in early stages of development. You may run into bugs, unexpected behavior, or incomplete documentation. Please report any problems you encounter by [opening an issue](https://github.com/k4yt3x/tellama/issues/new).
 
 Here is a demo of Tellama in action:
 
@@ -13,104 +13,82 @@ Here is a demo of Tellama in action:
 
 ## Quick Start
 
-### Option 1: Run with Docker
+### 1. Build Tellama
 
-The official image is hosted at [ghcr.io/k4yt3x/tellama:latest](https://github.com/k4yt3x/tellama/pkgs/container/tellama).
+You can skip this step if you are using the Docker image.
 
-To pass options with environment variables:
+Install the following dependencies:
+
+- [Go 1.24+](https://golang.org/dl/)
+- [Git](https://git-scm.com/downloads)
+
+Use the following commands to build Tellama:
 
 ```bash
+git clone https://github.com/k4yt3x/tellama.git
+cd tellama
+go build -ldflags="-s -w" -trimpath -o bin/tellama ./cmd/tellama
+```
+
+The built binary will be located at `bin/tellama`.
+
+### 2. Setup Telegram Bot and LLM Backend
+
+Make a copy of the `configs/tellama.yaml` configuration file and name it `tellama.yaml`.
+
+You will need to, at minimum, create a Telegram bot and obtain a Telegram bot token from [BotFather](@BotFather). Replace `YOUR_TELEGRAM_BOT_TOKEN` in the configuration file with the token you obtained.
+
+You can also customize the options for the LLM backend like setting the model name, temperature, and context length. Currently, [Ollama](https://github.com/ollama/ollama) is the only supported LLM backend, but support for more providers like OpenAI and Gemini will be added.
+
+### 3.A: Run with Docker
+
+The official image is hosted at [ghcr.io/k4yt3x/tellama:latest](https://github.com/k4yt3x/tellama/pkgs/container/tellama). You can run the image with the command below. This command assumes Ollama is running on the same machine and is listening on `http://localhost:11434`:
+
+```bash
+# Create an empty SQLite3 database
+touch tellama.db
+
 docker run \
   --network=host \
-  -v $PWD:/data \
-  -e TELEGRAM_TOKEN="YOUR_TELEGRAM_BOT_TOKEN" \
-  -e OLLAMA_MODEL="YourModelName" \
-  ghcr.io/k4yt3x/tellama:latest
+  -v $PWD/tellama.yaml:/data/tellama.yaml \
+  -v $PWD/tellama.db:/data/tellama.db \
+  ghcr.io/k4yt3x/tellama:0.2.0
 ```
 
-You can also save the environment variables in a `.env` file to make things easier:
+### 3.B: Run on Bare Metal
+
+You can also run the Tellama binary directly on your machine:
 
 ```bash
-docker run \
-  --network=host \
-  -v $PWD:/data \
-  --env-file .env \
-  ghcr.io/k4yt3x/tellama:latest
+bin/tellama
 ```
 
-To pass options with command-line arguments:
+### 4. Configuration
 
-```bash
-docker run \
-  --network=host \
-  -v $PWD:/data \
-  ghcr.io/k4yt3x/tellama:latest \
-  --telegram-token="YOUR_TELEGRAM_BOT_TOKEN" \
-  --model="YourModelName"
-```
-
-### Option 2: Install from PyPI
-
-You can also install Tellama directly using pip:
-
-```bash
-pip install tellama
-```
-
-To pass options with environment variables:
-
-```bash
-export TELEGRAM_TOKEN="YOUR_TELEGRAM_BOT_TOKEN"
-export OLLAMA_MODEL="YourModelName"
-
-tellama
-```
-
-You can also save the environment variables in a `.env` file to make things easier:
-
-```bash
-set -a; source .env; set +a
-tellama
-```
-
-To pass options with command-line arguments:
-
-```bash
-tellama --telegram-token="YOUR_TELEGRAM_BOT_TOKEN" --model="YourModelName"
-```
-
-## Further Configuration
-
-To see all available options, run:
-
-```bash
-tellama --help
-```
-
-or consult the [project repository](https://github.com/k4yt3x/tellama) for more details.
-
-## Configuration
-
-You will need to add custom default instructions for the model. Run the bot once to create the database, then add the instructions to the `chat_instructions` table in the SQLite database. A custom instruction entry with the `chat_id` of `NULL` will be used as the default instruction for all chats. You can also add instructions for specific chats by adding entries with the `chat_id` of the chat you want to customize.
+You will need to add a custom default system prompt. Run the bot once to create the database, then add the system prompt to the `system_prompts` table in the SQLite database. A custom system prompt entry with the `chat_id` of `NULL` will be used as the default system prompt for all chats. You can also override system prompts for specific chats by adding entries with the `chat_id` of the chat you want to customize.
 
 ```sql
-INSERT INTO chat_instructions (instructions) VALUES ('Your custom instructions');
+INSERT INTO system_prompts (system_prompt) VALUES ('Your name is Tellama.');
 ```
 
-Here is an example for how the instructions should look like:
+Here is an example for how the instructions could look:
 
 ```
-<instructions>
-- Your name is Tellama.
-- You are an AI chatbot built by @JohnDoe for Telegram group chats.
-- You should not engage in any harmful, illegal, or unethical conversations.
-- You should be polite, respectful, and helpful to all users.
-- You should obey laws, morals, and ethics.
-- Contents between `<instructions></instructions>` are instructions for you to follow.
-- Contents after `<instructions></instructions>` are messages from users in the chat.
-- User messages are in the format of `<nickname>: <message>`.
-- Your responses should be text-only, without any tags or identifiers.
-</instructions>
+{{if .CurrentTime}}current_time="{{.CurrentTime}}"
+{{end}}{{if .ChatTitle}}chat_title="{{.ChatTitle}}"
+{{end}}{{if .ChatType}}chat_type="{{.ChatType}}"
+{{end}}
+# Begin System Directives
+
+Your name is Tellama.
+You are an AI chatbot built by K4YT3X for Telegram group chats.
+Your task is to help users by providing information and answering questions.
+You must not engage in any harmful, illegal, or unethical conversations.
+You must be polite, respectful, and helpful to all users.
+You must obey laws, morals, and ethics.
+You should respond in plain text.
+
+# End System Directives
 ```
 
 ## License
