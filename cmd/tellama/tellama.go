@@ -109,6 +109,10 @@ func (t *Tellama) getSysPrompt(ctx telebot.Context) error {
 		return nil
 	}
 
+	if !t.checkPermissions(chat, msg.Sender, msg) {
+		return ctx.Reply("You do not have permission to use this command.")
+	}
+
 	systemPrompt := t.db.GetSystemPromptForGroup(chat.ID)
 	if systemPrompt == "" {
 		systemPrompt = "No custom system prompt available for this group."
@@ -122,6 +126,10 @@ func (t *Tellama) setSysPrompt(ctx telebot.Context) error {
 	msg := ctx.Message()
 	if chat == nil || msg == nil {
 		return nil
+	}
+
+	if !t.checkPermissions(chat, msg.Sender, msg) {
+		return ctx.Reply("You do not have permission to use this command.")
 	}
 
 	// Split message text into command and arguments
@@ -155,6 +163,10 @@ func (t *Tellama) delSysPrompt(ctx telebot.Context) error {
 		return nil
 	}
 
+	if !t.checkPermissions(chat, msg.Sender, msg) {
+		return ctx.Reply("You do not have permission to use this command.")
+	}
+
 	if err := t.db.DeleteSystemPromptForGroup(chat.ID); err != nil {
 		log.Error().Err(err).Msg("Failed to delete prompt")
 		return ctx.Reply("Failed to delete prompt. Please check logs for details.")
@@ -173,6 +185,10 @@ func (t *Tellama) getConfig(ctx telebot.Context) error {
 	msg := ctx.Message()
 	if chat == nil || msg == nil {
 		return nil
+	}
+
+	if !t.checkPermissions(chat, msg.Sender, msg) {
+		return ctx.Reply("You do not have permission to use this command.")
 	}
 
 	log.Info().
@@ -206,6 +222,10 @@ func (t *Tellama) amnesia(ctx telebot.Context) error {
 	msg := ctx.Message()
 	if chat == nil || msg == nil {
 		return nil
+	}
+
+	if !t.checkPermissions(chat, msg.Sender, msg) {
+		return ctx.Reply("You do not have permission to use this command.")
 	}
 
 	if err := t.db.ClearMessages(chat.ID); err != nil {
@@ -251,25 +271,8 @@ func (t *Tellama) processMessage(ctx telebot.Context) error {
 		return nil
 	}
 
-	// Log the received message
-	log.Info().
-		Int64("chat_id", chat.ID).
-		Str("chat_title", chat.Title).
-		Str("chat_type", string(chat.Type)).
-		Int64("sender_id", user.ID).
-		Str("username", user.Username).
-		Int("message_id", message.ID).
-		Str("text", message.Text).
-		Msg("Received message")
-
 	// Verify user/group has permission to use the bot
-	if !t.db.IsChatAllowed(chat.ID) {
-		log.Warn().
-			Int64("chat_id", chat.ID).
-			Str("chat_title", chat.Title).
-			Int("message_id", message.ID).
-			Msg("Unauthorized chat")
-
+	if !t.checkPermissions(chat, user, message) {
 		if chat.Type == telebot.ChatPrivate {
 			return ctx.Reply(t.responseMessages.privateChatDisallowed)
 		}
@@ -333,6 +336,33 @@ func (t *Tellama) processMessage(ctx telebot.Context) error {
 
 	// Store the bot's response in the database
 	return t.storeBotResponse(chat, answer)
+}
+
+func (t *Tellama) checkPermissions(
+	chat *telebot.Chat,
+	user *telebot.User,
+	message *telebot.Message,
+) bool {
+	// Log the received message
+	log.Info().
+		Int64("chat_id", chat.ID).
+		Str("chat_title", chat.Title).
+		Str("chat_type", string(chat.Type)).
+		Int64("sender_id", user.ID).
+		Str("username", user.Username).
+		Int("message_id", message.ID).
+		Str("text", message.Text).
+		Msg("Received message")
+
+	if !t.db.IsChatAllowed(chat.ID) {
+		log.Warn().
+			Int64("chat_id", chat.ID).
+			Str("chat_title", chat.Title).
+			Int("message_id", message.ID).
+			Msg("Unauthorized chat")
+		return false
+	}
+	return true
 }
 
 func (t *Tellama) shouldProcessMessage(chat *telebot.Chat, msg *telebot.Message) bool {
