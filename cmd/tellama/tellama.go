@@ -82,12 +82,12 @@ func NewTellama(
 	}
 
 	// Register handlers
-	bot.Handle(telebot.OnText, t.handleMessage)
 	bot.Handle("/getsysprompt", t.getSysPrompt)
 	bot.Handle("/setsysprompt", t.setSysPrompt)
 	bot.Handle("/delsysprompt", t.delSysPrompt)
 	bot.Handle("/getconfig", t.getConfig)
 	bot.Handle("/amnesia", t.amnesia)
+	bot.Handle(telebot.OnText, t.handleMessage)
 
 	return t, nil
 }
@@ -109,7 +109,7 @@ func (t *Tellama) getSysPrompt(ctx telebot.Context) error {
 		systemPrompt = "No custom system prompt available for this group."
 	}
 
-	return ctx.Reply(systemPrompt, telebot.ModeMarkdown)
+	return ctx.Reply(systemPrompt)
 }
 
 func (t *Tellama) setSysPrompt(ctx telebot.Context) error {
@@ -217,7 +217,7 @@ func (t *Tellama) amnesia(ctx telebot.Context) error {
 }
 
 func (t *Tellama) handleMessage(c telebot.Context) error {
-	// Validate that we received a non-empty message
+	// Validate that the received message is not empty
 	message := c.Message()
 	if message == nil || message.Text == "" {
 		log.Info().Msg("Received message with invalid text")
@@ -236,6 +236,7 @@ func (t *Tellama) handleMessage(c telebot.Context) error {
 	log.Info().
 		Int64("chat_id", chat.ID).
 		Str("chat_title", chat.Title).
+		Str("chat_type", string(chat.Type)).
 		Int64("sender_id", user.ID).
 		Str("username", user.Username).
 		Int("message_id", message.ID).
@@ -243,13 +244,17 @@ func (t *Tellama) handleMessage(c telebot.Context) error {
 		Msg("Received message")
 
 	// Verify user/group has permission to use the bot
-	allowed, err := t.checkPermissions(chat, user)
-	if !allowed {
+	if !t.db.IsChatAllowed(chat.ID) {
+		log.Warn().
+			Int64("chat_id", chat.ID).
+			Str("chat_title", chat.Title).
+			Int("message_id", message.ID).
+			Msg("Unauthorized chat")
+
+		if chat.Type == telebot.ChatPrivate {
+			return c.Reply(t.responseMessages.privateChatDisallowed)
+		}
 		return nil
-	}
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to check permissions")
-		return err
 	}
 
 	// Get historical messages for the chat
@@ -309,20 +314,6 @@ func (t *Tellama) handleMessage(c telebot.Context) error {
 
 	// Store the bot's response in the database
 	return t.storeBotResponse(chat, answer)
-}
-
-func (t *Tellama) checkPermissions(
-	chat *telebot.Chat,
-	user *telebot.User,
-) (bool, error) {
-	if !t.db.IsChatAllowed(chat.ID) {
-		log.Warn().
-			Int64("chat_id", chat.ID).
-			Str("chat_title", chat.Title).
-			Msgf("Unauthorized chat %s (%d)", chat.Title, chat.ID)
-		return false, nil
-	}
-	return true, nil
 }
 
 func (t *Tellama) shouldProcessMessage(chat *telebot.Chat, msg *telebot.Message) bool {
