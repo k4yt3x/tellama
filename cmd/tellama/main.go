@@ -45,21 +45,21 @@ func runBot(cmd *cobra.Command, _ []string) {
 	configFile := viper.ConfigFileUsed()
 	log.Info().Str("path", configFile).Msg("Read configs from file")
 
-	// Read the Ollama host
-	viper.SetDefault("ollama.host", "http://localhost:11434")
-	ollamaHost := viper.GetString("ollama.host")
-	log.Debug().Str("host", ollamaHost).Msg("Using Ollama host")
+	// Read the Telegram Bot API token
+	telegramBotToken := viper.GetString("telegram_bot_token")
+	if telegramBotToken == "" {
+		log.Fatal().Msg("Telegram Bot API token is required")
+	}
 
 	// Read the database path
 	viper.SetDefault("database_path", "tellama.db")
 	databasePath := viper.GetString("database_path")
 	log.Debug().Str("path", databasePath).Msg("Using database path")
 
-	// Read the Telegram Bot API token
-	telegramBotToken := viper.GetString("telegram_bot_token")
-	if telegramBotToken == "" {
-		log.Fatal().Msg("Telegram Bot API token is required")
-	}
+	// Read the Ollama host
+	viper.SetDefault("ollama.host", "http://localhost:11434")
+	ollamaHost := viper.GetString("ollama.host")
+	log.Debug().Str("host", ollamaHost).Msg("Using Ollama host")
 
 	// Read the Ollama model
 	viper.SetDefault("ollama.model", "llama3.3:70b")
@@ -79,6 +79,7 @@ func runBot(cmd *cobra.Command, _ []string) {
 	responseMessages := ResponseMessages{
 		privateChatDisallowed: viper.GetString("messages.private_chat_disallowed"),
 		internalError:         viper.GetString("messages.internal_error"),
+		serverBusy:            viper.GetString("messages.server_busy"),
 	}
 
 	// Initialize Tellama
@@ -87,6 +88,8 @@ func runBot(cmd *cobra.Command, _ []string) {
 		viper.GetInt("history_fetch_limit"),
 		databasePath,
 		responseMessages,
+		viper.GetDuration("telegram_timeout"),
+		viper.GetDuration("genai_timeout"),
 		telegramBotToken,
 		ollamaHost,
 		ollamaModel,

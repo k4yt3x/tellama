@@ -19,19 +19,20 @@ import (
 	"gopkg.in/telebot.v4"
 )
 
-const tellamaTimeout = 10 * time.Second
-
 type ResponseMessages struct {
 	privateChatDisallowed string
 	internalError         string
+	serverBusy            string
 }
 
 type Tellama struct {
-	responseMessages  ResponseMessages
 	template          string
 	historyFetchLimit int
+	responseMessages  ResponseMessages
+	genaiTimeout      time.Duration
 	ollamaModel       string
 	ollamaOptions     map[string]interface{}
+	sem               chan struct{}
 	db                *database.DatabaseManager
 	bot               *telebot.Bot
 	ollamaClient      *api.Client
@@ -39,9 +40,11 @@ type Tellama struct {
 
 func NewTellama(
 	template string,
-	historyLimit int,
+	historyFetchLimit int,
 	dbPath string,
 	responseMessages ResponseMessages,
+	telegramTimeout time.Duration,
+	genaiTimeout time.Duration,
 	telegramToken string,
 	ollamaHost string,
 	ollamaModel string,
@@ -55,7 +58,7 @@ func NewTellama(
 	// Create a new Telebot instance
 	bot, err := telebot.NewBot(telebot.Settings{
 		Token:  telegramToken,
-		Poller: &telebot.LongPoller{Timeout: tellamaTimeout},
+		Poller: &telebot.LongPoller{Timeout: telegramTimeout},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Telebot: %w", err)
@@ -66,20 +69,22 @@ func NewTellama(
 		return nil, fmt.Errorf("failed to parse Ollama host URL: %w", err)
 	}
 
-	// Create a new Ollama client
-	client := api.NewClient(ollamaBaseURL, http.DefaultClient)
-
 	// Create a new Tellama instance
 	t := &Tellama{
+		template:          template,
+		historyFetchLimit: historyFetchLimit,
+		responseMessages:  responseMessages,
+		genaiTimeout:      genaiTimeout,
 		ollamaModel:       ollamaModel,
 		ollamaOptions:     ollamaOptions,
-		template:          template,
-		historyFetchLimit: historyLimit,
+		sem:               make(chan struct{}, 1),
 		db:                db,
 		bot:               bot,
-		ollamaClient:      client,
-		responseMessages:  responseMessages,
+		ollamaClient:      api.NewClient(ollamaBaseURL, http.DefaultClient),
 	}
+
+	// Initialize the semaphore with a token
+	t.sem <- struct{}{}
 
 	// Register handlers
 	bot.Handle("/getsysprompt", t.getSysPrompt)
@@ -216,17 +221,31 @@ func (t *Tellama) amnesia(ctx telebot.Context) error {
 	return ctx.Reply("All messages forgotten.")
 }
 
-func (t *Tellama) handleMessage(c telebot.Context) error {
+func (t *Tellama) handleMessage(ctx telebot.Context) error {
+	select {
+	case <-t.sem:
+		defer func() { t.sem <- struct{}{} }()
+		return t.processMessage(ctx)
+	case <-time.After(t.genaiTimeout):
+		message := ctx.Message()
+		log.Warn().
+			Int("message_id", message.ID).
+			Msg("Failed to acquire semaphore to process message")
+		return ctx.Reply(t.responseMessages.serverBusy)
+	}
+}
+
+func (t *Tellama) processMessage(ctx telebot.Context) error {
 	// Validate that the received message is not empty
-	message := c.Message()
+	message := ctx.Message()
 	if message == nil || message.Text == "" {
 		log.Info().Msg("Received message with invalid text")
 		return nil
 	}
 
 	// Get chat and user information
-	chat := c.Chat()
-	user := c.Sender()
+	chat := ctx.Chat()
+	user := ctx.Sender()
 	if user == nil {
 		log.Info().Msg("Received message without a valid sender")
 		return nil
@@ -252,7 +271,7 @@ func (t *Tellama) handleMessage(c telebot.Context) error {
 			Msg("Unauthorized chat")
 
 		if chat.Type == telebot.ChatPrivate {
-			return c.Reply(t.responseMessages.privateChatDisallowed)
+			return ctx.Reply(t.responseMessages.privateChatDisallowed)
 		}
 		return nil
 	}
@@ -261,7 +280,7 @@ func (t *Tellama) handleMessage(c telebot.Context) error {
 	messages, err := t.db.GetMessages(chat.ID, t.historyFetchLimit)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get message history")
-		return c.Reply(t.responseMessages.internalError)
+		return ctx.Reply(t.responseMessages.internalError)
 	}
 
 	// Store the user's message in the database
@@ -279,7 +298,7 @@ func (t *Tellama) handleMessage(c telebot.Context) error {
 	messages, err = t.appendCurrentMessages(messages, chat, user, message)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to append current messages")
-		return c.Reply(t.responseMessages.internalError)
+		return ctx.Reply(t.responseMessages.internalError)
 	}
 
 	// Generate bot's response using Ollama
@@ -291,7 +310,7 @@ func (t *Tellama) handleMessage(c telebot.Context) error {
 	answer, err := t.generateResponse(messages)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate response")
-		return c.Reply(t.responseMessages.internalError)
+		return ctx.Reply(t.responseMessages.internalError)
 	}
 
 	// Skip responding if the model indicates to do so
@@ -300,12 +319,12 @@ func (t *Tellama) handleMessage(c telebot.Context) error {
 	}
 
 	// Send the response back to the chat
-	_, err = c.Bot().Reply(message, answer, telebot.ModeMarkdown)
+	_, err = ctx.Bot().Reply(message, answer, telebot.ModeMarkdown)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to send reply with Markdown formatting")
 
 		// Retry sending the response without Markdown formatting
-		_, err = c.Bot().Reply(message, answer)
+		_, err = ctx.Bot().Reply(message, answer)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to send reply")
 			return err

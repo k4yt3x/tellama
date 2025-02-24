@@ -7,6 +7,12 @@ database_path: tellama.db
 # The maximum number of history messages to fetch from the database
 history_fetch_limit: 10000
 
+# Telegram API timeout duration
+telegram_timeout: 10s
+
+# Generative AI timeout duration
+genai_timeout: 15s
+
 # Ollama options
 ollama:
   # The Ollama host
