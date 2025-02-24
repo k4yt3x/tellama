@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `/getsysprompt`, `/setsysprompt`, and `/delsysprompt` commands to manage custom prompts.
 - The feature to inject context information into the system prompt.
 - The feature to log generated prompts to the database.
+- The feature to override Ollama host, model, and options for a specific chat.
 - The feature to remove ChatML headers from the output.
 - The feature to use custom templates to format prompts.
 

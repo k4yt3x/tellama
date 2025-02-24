@@ -11,7 +11,7 @@ import (
 
 type FakerModels struct {
 	AllowedChat       AllowedChat
-	SystemPrompt      SystemPrompt
+	SystemPrompt      ChatOverride
 	Message           Message
 	GenerationRequest GenerationRequest
 }
@@ -36,7 +36,7 @@ func TestNewDatabaseManager(t *testing.T) {
 	// Verify tables exist
 	err = dbManager.db.AutoMigrate(
 		&AllowedChat{},
-		&SystemPrompt{},
+		&ChatOverride{},
 		&Message{},
 		&GenerationRequest{},
 	)
@@ -74,37 +74,56 @@ func TestSystemPrompts(t *testing.T) {
 	require.NoError(t, err)
 	chatID := int64(chatIDs[0])
 
-	t.Run("Get default prompt", func(t *testing.T) {
+	t.Run("Get global default chat override", func(t *testing.T) {
 		// Act
-		prompt := dbManager.GetSystemPromptForGroup(chatID)
+		var chatOverride ChatOverride
+		chatOverride, err = dbManager.GetChatOverride(chatID)
+		require.NoError(t, err)
 
 		// Assert
-		assert.Equal(t, defaultSystemPrompt, prompt)
+		assert.Empty(t, chatOverride.SystemPrompt)
 	})
 
-	t.Run("Set and get custom prompt", func(t *testing.T) {
+	t.Run("Set and get chat override", func(t *testing.T) {
 		// Arrange
-		customPrompt := faker.Paragraph()
+		chatTitle := faker.Sentence()
+		ollamaHost := faker.URL()
+		model := faker.Word()
+		options := faker.Paragraph()
+		systemPrompt := faker.Paragraph()
 
 		// Act
-		err = dbManager.SetSystemPromptForGroup(chatID, customPrompt)
+		err = dbManager.SetChatOverride(chatID, chatTitle, ollamaHost, model, options, systemPrompt)
 		require.NoError(t, err)
 
-		prompt := dbManager.GetSystemPromptForGroup(chatID)
+		var chatOverride ChatOverride
+		chatOverride, err = dbManager.GetChatOverride(chatID)
+		require.NoError(t, err)
 
 		// Assert
-		assert.Equal(t, customPrompt, prompt)
+		assert.Equal(t, chatID, chatOverride.ChatID)
+		assert.Equal(t, chatTitle, chatOverride.ChatTitle)
+		assert.Equal(t, ollamaHost, chatOverride.OllamaHost)
+		assert.Equal(t, model, chatOverride.Model)
+		assert.Equal(t, options, chatOverride.Options)
+		assert.Equal(t, systemPrompt, chatOverride.SystemPrompt)
 	})
 
-	t.Run("Delete prompt", func(t *testing.T) {
+	t.Run("Delete chat override", func(t *testing.T) {
 		// Act
-		err = dbManager.DeleteSystemPromptForGroup(chatID)
+		err = dbManager.DeleteChatOverride(chatID)
 		require.NoError(t, err)
 
-		prompt := dbManager.GetSystemPromptForGroup(chatID)
+		var chatOverride ChatOverride
+		chatOverride, err = dbManager.GetChatOverride(chatID)
+		require.NoError(t, err)
 
 		// Assert
-		assert.Equal(t, defaultSystemPrompt, prompt)
+		assert.Empty(t, chatOverride.ChatTitle)
+		assert.Empty(t, chatOverride.OllamaHost)
+		assert.Empty(t, chatOverride.Model)
+		assert.Empty(t, chatOverride.Options)
+		assert.Empty(t, chatOverride.SystemPrompt)
 	})
 }
 
@@ -124,7 +143,7 @@ func TestMessageStorage(t *testing.T) {
 		Username:  faker.Username(),
 		FirstName: faker.FirstName(),
 		LastName:  faker.LastName(),
-		Message:   faker.Paragraph(),
+		Content:   faker.Paragraph(),
 	}
 
 	t.Run("Store message", func(t *testing.T) {
@@ -137,7 +156,7 @@ func TestMessageStorage(t *testing.T) {
 			testMessage.Username,
 			testMessage.FirstName,
 			testMessage.LastName,
-			testMessage.Message,
+			testMessage.Content,
 		)
 
 		// Assert
@@ -146,7 +165,7 @@ func TestMessageStorage(t *testing.T) {
 
 	t.Run("Retrieve messages", func(t *testing.T) {
 		// Act
-		var messages []ChatMessage
+		var messages []Message
 		messages, err = dbManager.GetMessages(chatID, 10)
 
 		// Assert
@@ -155,7 +174,7 @@ func TestMessageStorage(t *testing.T) {
 
 		msg := messages[0]
 		assert.Equal(t, testMessage.ChatID, msg.ChatID)
-		assert.Equal(t, testMessage.Message, msg.Content)
+		assert.Equal(t, testMessage.Content, msg.Content)
 		assert.WithinDuration(t, testMessage.Timestamp, msg.Timestamp, time.Second)
 	})
 
@@ -164,7 +183,7 @@ func TestMessageStorage(t *testing.T) {
 		err = dbManager.ClearMessages(chatID)
 		require.NoError(t, err)
 
-		var messages []ChatMessage
+		var messages []Message
 		messages, err = dbManager.GetMessages(chatID, 10)
 		require.NoError(t, err)
 
@@ -177,14 +196,15 @@ func TestGenerationRequestStorage(t *testing.T) {
 	dbManager := setupTestDB(t)
 
 	testRequest := GenerationRequest{
-		Timestamp: time.Now().UTC(),
-		ChatID:    faker.RandomUnixTime(),
-		ChatTitle: faker.Word(),
-		UserID:    faker.RandomUnixTime(),
-		Username:  faker.Username(),
-		Model:     faker.Word(),
-		Options:   faker.Paragraph(),
-		Prompt:    faker.Paragraph(),
+		Timestamp:  time.Now().UTC(),
+		ChatID:     faker.RandomUnixTime(),
+		ChatTitle:  faker.Word(),
+		UserID:     faker.RandomUnixTime(),
+		Username:   faker.Username(),
+		Model:      faker.Word(),
+		Options:    faker.Paragraph(),
+		Prompt:     faker.Paragraph(),
+		OllamaHost: faker.URL(),
 	}
 
 	// Act
@@ -196,6 +216,7 @@ func TestGenerationRequestStorage(t *testing.T) {
 		testRequest.Model,
 		testRequest.Options,
 		testRequest.Prompt,
+		testRequest.OllamaHost,
 	)
 
 	// Assert

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -56,6 +57,26 @@ func runBot(cmd *cobra.Command, _ []string) {
 	databasePath := viper.GetString("database_path")
 	log.Debug().Str("path", databasePath).Msg("Using database path")
 
+	// Read history fetch limit
+	viper.SetDefault("history_fetch_limit", 10000)
+	historyFetchLimit := viper.GetInt("history_fetch_limit")
+	log.Debug().Int("limit", historyFetchLimit).Msg("Using history fetch limit")
+
+	// Read the Telegram timeout
+	viper.SetDefault("telegram_timeout", 10*time.Second)
+	telegramTimeout := viper.GetDuration("telegram_timeout")
+	log.Debug().Dur("timeout", telegramTimeout).Msg("Using Telegram timeout")
+
+	// Read the Generative AI timeout
+	viper.SetDefault("genai_timeout", 10*time.Second)
+	genaiTimeout := viper.GetDuration("genai_timeout")
+	log.Debug().Dur("timeout", genaiTimeout).Msg("Using GenAI timeout")
+
+	// Read the allow unauthorized chats flag
+	viper.SetDefault("allow_unauthorized_chats", false)
+	allowUnauthorizedChats := viper.GetBool("allow_unauthorized_chats")
+	log.Debug().Bool("value", allowUnauthorizedChats).Msg("Allow unauthorized chats")
+
 	// Read the Ollama host
 	viper.SetDefault("ollama.host", "http://localhost:11434")
 	ollamaHost := viper.GetString("ollama.host")
@@ -84,16 +105,17 @@ func runBot(cmd *cobra.Command, _ []string) {
 
 	// Initialize Tellama
 	tellama, err := NewTellama(
-		viper.GetString("template"),
-		viper.GetInt("history_fetch_limit"),
-		databasePath,
-		responseMessages,
-		viper.GetDuration("telegram_timeout"),
-		viper.GetDuration("genai_timeout"),
 		telegramBotToken,
+		databasePath,
+		historyFetchLimit,
+		telegramTimeout,
+		genaiTimeout,
+		allowUnauthorizedChats,
 		ollamaHost,
 		ollamaModel,
 		ollamaOptions,
+		responseMessages,
+		viper.GetString("template"),
 	)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to initialize Tellama")

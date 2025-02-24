@@ -13,6 +13,10 @@ telegram_timeout: 10s
 # Generative AI timeout duration
 genai_timeout: 15s
 
+# Allow unauthorized chats
+# Only the /amnesia command is allowed in unauthorized chats
+allow_unauthorized_chats: false
+
 # Ollama options
 ollama:
   # The Ollama host

@@ -19,6 +19,22 @@ import (
 	"gopkg.in/telebot.v4"
 )
 
+const defaultSystemPrompt = `{{if .CurrentTime}}current_time="{{.CurrentTime}}"
+{{end}}{{if .ChatTitle}}chat_title="{{.ChatTitle}}"
+{{end}}{{if .ChatType}}chat_type="{{.ChatType}}"
+{{end}}
+# Begin System Directives
+
+Your name is Tellama.
+You are an AI chatbot built by K4YT3X for Telegram group chats.
+Your task is to help users by providing information and answering questions.
+You must not engage in any harmful, illegal, or unethical conversations.
+You must be polite, respectful, and helpful to all users.
+You must obey laws, morals, and ethics.
+You should respond in plain text.
+
+# End System Directives`
+
 type ResponseMessages struct {
 	privateChatDisallowed string
 	internalError         string
@@ -26,29 +42,31 @@ type ResponseMessages struct {
 }
 
 type Tellama struct {
-	template          string
-	historyFetchLimit int
-	responseMessages  ResponseMessages
-	genaiTimeout      time.Duration
-	ollamaModel       string
-	ollamaOptions     map[string]interface{}
-	sem               chan struct{}
-	db                *database.DatabaseManager
-	bot               *telebot.Bot
-	ollamaClient      *api.Client
+	historyFetchLimit      int
+	genaiTimeout           time.Duration
+	allowUnauthorizedChats bool
+	ollamaHost             string
+	ollamaModel            string
+	ollamaOptions          map[string]interface{}
+	responseMessages       ResponseMessages
+	template               string
+	sem                    chan struct{}
+	db                     *database.DatabaseManager
+	bot                    *telebot.Bot
 }
 
 func NewTellama(
-	template string,
-	historyFetchLimit int,
+	telegramToken string,
 	dbPath string,
-	responseMessages ResponseMessages,
+	historyFetchLimit int,
 	telegramTimeout time.Duration,
 	genaiTimeout time.Duration,
-	telegramToken string,
+	allowUnauthorizedChats bool,
 	ollamaHost string,
 	ollamaModel string,
 	ollamaOptions map[string]interface{},
+	responseMessages ResponseMessages,
+	template string,
 ) (*Tellama, error) {
 	db, err := database.NewDatabaseManager(dbPath)
 	if err != nil {
@@ -64,23 +82,19 @@ func NewTellama(
 		return nil, fmt.Errorf("failed to create Telebot: %w", err)
 	}
 
-	ollamaBaseURL, err := url.Parse(ollamaHost)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse Ollama host URL: %w", err)
-	}
-
 	// Create a new Tellama instance
 	t := &Tellama{
-		template:          template,
-		historyFetchLimit: historyFetchLimit,
-		responseMessages:  responseMessages,
-		genaiTimeout:      genaiTimeout,
-		ollamaModel:       ollamaModel,
-		ollamaOptions:     ollamaOptions,
-		sem:               make(chan struct{}, 1),
-		db:                db,
-		bot:               bot,
-		ollamaClient:      api.NewClient(ollamaBaseURL, http.DefaultClient),
+		historyFetchLimit:      historyFetchLimit,
+		genaiTimeout:           genaiTimeout,
+		allowUnauthorizedChats: allowUnauthorizedChats,
+		ollamaHost:             ollamaHost,
+		ollamaModel:            ollamaModel,
+		ollamaOptions:          ollamaOptions,
+		responseMessages:       responseMessages,
+		template:               template,
+		sem:                    make(chan struct{}, 1),
+		db:                     db,
+		bot:                    bot,
 	}
 
 	// Initialize the semaphore with a token
@@ -113,12 +127,16 @@ func (t *Tellama) getSysPrompt(ctx telebot.Context) error {
 		return ctx.Reply("You do not have permission to use this command.")
 	}
 
-	systemPrompt := t.db.GetSystemPromptForGroup(chat.ID)
-	if systemPrompt == "" {
-		systemPrompt = "No custom system prompt available for this group."
+	chatOverride, err := t.db.GetChatOverride(chat.ID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get prompt")
+		return ctx.Reply("Failed to get prompt. Please check logs for details.")
 	}
 
-	return ctx.Reply(systemPrompt)
+	if chatOverride.SystemPrompt == "" {
+		return ctx.Reply("No custom system prompt set for this chat.")
+	}
+	return ctx.Reply(chatOverride.SystemPrompt)
 }
 
 func (t *Tellama) setSysPrompt(ctx telebot.Context) error {
@@ -143,13 +161,13 @@ func (t *Tellama) setSysPrompt(ctx telebot.Context) error {
 		return ctx.Reply("Please provide a non-empty prompt to set.")
 	}
 
-	if err := t.db.SetSystemPromptForGroup(chat.ID, prompt); err != nil {
+	if err := t.db.SetChatOverride(chat.ID, chat.Title, "", "", "", prompt); err != nil {
 		log.Error().Err(err).Msg("Failed to set prompt")
 		return ctx.Reply("Failed to set prompt. Please check logs for details.")
 	}
 
 	log.Info().
-		Int64("group_id", chat.ID).
+		Int64("chat_id", chat.ID).
 		Int64("user_id", msg.Sender.ID).
 		Msg("Prompt set")
 
@@ -167,7 +185,7 @@ func (t *Tellama) delSysPrompt(ctx telebot.Context) error {
 		return ctx.Reply("You do not have permission to use this command.")
 	}
 
-	if err := t.db.DeleteSystemPromptForGroup(chat.ID); err != nil {
+	if err := t.db.DeleteChatOverride(chat.ID); err != nil {
 		log.Error().Err(err).Msg("Failed to delete prompt")
 		return ctx.Reply("Failed to delete prompt. Please check logs for details.")
 	}
@@ -224,7 +242,7 @@ func (t *Tellama) amnesia(ctx telebot.Context) error {
 		return nil
 	}
 
-	if !t.checkPermissions(chat, msg.Sender, msg) {
+	if !t.checkPermissions(chat, msg.Sender, msg) && !t.allowUnauthorizedChats {
 		return ctx.Reply("You do not have permission to use this command.")
 	}
 
@@ -272,7 +290,7 @@ func (t *Tellama) processMessage(ctx telebot.Context) error {
 	}
 
 	// Verify user/group has permission to use the bot
-	if !t.checkPermissions(chat, user, message) {
+	if !t.checkPermissions(chat, user, message) && !t.allowUnauthorizedChats {
 		if chat.Type == telebot.ChatPrivate {
 			return ctx.Reply(t.responseMessages.privateChatDisallowed)
 		}
@@ -297,8 +315,15 @@ func (t *Tellama) processMessage(ctx telebot.Context) error {
 		return nil
 	}
 
+	// Get override values for this chat
+	chatOverride, err := t.db.GetChatOverride(chat.ID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get chat override")
+		return err
+	}
+
 	// Add system prompt and current message to the conversation
-	messages, err = t.appendCurrentMessages(messages, chat, user, message)
+	messages, err = t.appendCurrentMessages(messages, chat, user, message, chatOverride)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to append current messages")
 		return ctx.Reply(t.responseMessages.internalError)
@@ -310,7 +335,7 @@ func (t *Tellama) processMessage(ctx telebot.Context) error {
 		Int("message_id", message.ID).
 		Msg("Generating response for message")
 
-	answer, err := t.generateResponse(messages)
+	answer, err := t.generateResponse(messages, chatOverride)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate response")
 		return ctx.Reply(t.responseMessages.internalError)
@@ -379,11 +404,12 @@ func (t *Tellama) shouldProcessMessage(chat *telebot.Chat, msg *telebot.Message)
 }
 
 func (t *Tellama) appendCurrentMessages(
-	messages []database.ChatMessage,
+	messages []database.Message,
 	chat *telebot.Chat,
 	user *telebot.User,
 	msg *telebot.Message,
-) ([]database.ChatMessage, error) {
+	chatOverride database.ChatOverride,
+) ([]database.Message, error) {
 	// If the message is a reply to the bot, include the original message
 	isReplyToBot := msg.ReplyTo != nil && msg.ReplyTo.Sender != nil &&
 		msg.ReplyTo.Sender.ID == t.bot.Me.ID
@@ -397,9 +423,14 @@ func (t *Tellama) appendCurrentMessages(
 		}
 	}
 
+	systemPromptTemplateString := defaultSystemPrompt
+	if chatOverride.SystemPrompt != "" {
+		systemPromptTemplateString = chatOverride.SystemPrompt
+	}
+
 	// Add system prompt
-	sysPromptTemplate := template.Must(
-		template.New("sysprompt").Parse(t.db.GetSystemPromptForGroup(chat.ID)),
+	systemPromptTemplate := template.Must(
+		template.New("sysprompt").Parse(systemPromptTemplateString),
 	)
 
 	// Inject context information into the system prompt template
@@ -415,13 +446,13 @@ func (t *Tellama) appendCurrentMessages(
 	}
 
 	var systemPrompt bytes.Buffer
-	err := sysPromptTemplate.Execute(&systemPrompt, contextInfo)
+	err := systemPromptTemplate.Execute(&systemPrompt, contextInfo)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to execute system prompt template")
 		return nil, err
 	}
 
-	return append(messages, database.ChatMessage{
+	return append(messages, database.Message{
 		Timestamp: time.Now().UTC(),
 		ChatID:    chat.ID,
 		ChatTitle: title,
@@ -430,7 +461,7 @@ func (t *Tellama) appendCurrentMessages(
 		Username:  t.bot.Me.Username,
 		FirstName: "system",
 		Content:   systemPrompt.String(),
-	}, database.ChatMessage{
+	}, database.Message{
 		Timestamp: time.Now().UTC(),
 		ChatID:    chat.ID,
 		ChatTitle: title,
@@ -443,7 +474,10 @@ func (t *Tellama) appendCurrentMessages(
 	}), nil
 }
 
-func (t *Tellama) generateResponse(messages []database.ChatMessage) (string, error) {
+func (t *Tellama) generateResponse(
+	messages []database.Message,
+	chatOverride database.ChatOverride,
+) (string, error) {
 	// Load the prompt template
 	promptTemplate := template.Must(template.New("prompt").Parse(t.template))
 
@@ -455,20 +489,50 @@ func (t *Tellama) generateResponse(messages []database.ChatMessage) (string, err
 		return "", err
 	}
 
-	optionsJSON, err := json.Marshal(t.ollamaOptions)
+	ollamaHost := t.ollamaHost
+	if chatOverride.OllamaHost != "" {
+		ollamaHost = chatOverride.OllamaHost
+	}
+
+	ollamaHostURL, err := url.Parse(ollamaHost)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to parse Ollama host URL")
+	}
+	ollamaClient := api.NewClient(ollamaHostURL, http.DefaultClient)
+
+	model := t.ollamaModel
+	if chatOverride.Model != "" {
+		model = chatOverride.Model
+	}
+
+	var options map[string]interface{}
+	if chatOverride.Options != "" {
+		err = json.Unmarshal([]byte(chatOverride.Options), &options)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to unmarshal chat override options")
+			return "", err
+		}
+	} else {
+		options = t.ollamaOptions
+	}
+
+	// Marshal Ollama options to JSON
+	optionsJSON, err := json.Marshal(options)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to marshal Ollama options")
 	}
 
+	// Store the generation request in the database
 	currentMessage := messages[len(messages)-1]
 	err = t.db.StoreGenerationRequest(
 		currentMessage.ChatID,
 		currentMessage.ChatTitle,
 		currentMessage.UserID,
 		currentMessage.Username,
-		t.ollamaModel,
+		model,
 		string(optionsJSON),
 		prompt.String(),
+		ollamaHost,
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to store the generation request")
@@ -476,10 +540,10 @@ func (t *Tellama) generateResponse(messages []database.ChatMessage) (string, err
 
 	// Generate response from Ollama
 	var responseBuilder strings.Builder
-	err = t.ollamaClient.Generate(context.Background(),
+	err = ollamaClient.Generate(context.Background(),
 		&api.GenerateRequest{
-			Model:     t.ollamaModel,
-			Options:   t.ollamaOptions,
+			Model:     model,
+			Options:   options,
 			Raw:       true,
 			Prompt:    prompt.String(),
 			KeepAlive: &api.Duration{Duration: -1},
