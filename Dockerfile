@@ -1,8 +1,10 @@
-FROM docker.io/library/python:3.13-alpine
-
-COPY . /app
+FROM golang:1.24 AS builder
 WORKDIR /app
-RUN pip install . && rm -rf /app
+COPY . .
+RUN go mod download
+RUN go build -ldflags="-s -w" -trimpath -o tellama ./cmd/tellama
 
+FROM gcr.io/distroless/base
+COPY --from=builder /app/tellama /app/tellama
 WORKDIR /data
-ENTRYPOINT ["python", "-m", "tellama"]
+ENTRYPOINT ["/app/tellama"]
