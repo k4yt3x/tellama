@@ -10,7 +10,7 @@ import (
 )
 
 type FakerModels struct {
-	AllowedChat       AllowedChat
+	AllowedChat       TrustedChat
 	SystemPrompt      ChatOverride
 	Message           Message
 	GenerationRequest GenerationRequest
@@ -35,7 +35,7 @@ func TestNewDatabaseManager(t *testing.T) {
 
 	// Verify tables exist
 	err = dbManager.db.AutoMigrate(
-		&AllowedChat{},
+		&TrustedChat{},
 		&ChatOverride{},
 		&Message{},
 		&GenerationRequest{},
@@ -48,12 +48,12 @@ func TestIsChatAllowed(t *testing.T) {
 
 	t.Run("Allowed chat", func(t *testing.T) {
 		// Arrange
-		var chat AllowedChat
+		var chat TrustedChat
 		faker.FakeData(&chat)
 		dbManager.db.Create(&chat)
 
 		// Act
-		allowed := dbManager.IsChatAllowed(chat.ChatID)
+		allowed := dbManager.IsChatTrusted(chat.ChatID)
 
 		// Assert
 		assert.True(t, allowed)
@@ -61,7 +61,7 @@ func TestIsChatAllowed(t *testing.T) {
 
 	t.Run("Not allowed chat", func(t *testing.T) {
 		// Act
-		allowed := dbManager.IsChatAllowed(-1) // Non-existent ID
+		allowed := dbManager.IsChatTrusted(-1) // Non-existent ID
 
 		// Assert
 		assert.False(t, allowed)

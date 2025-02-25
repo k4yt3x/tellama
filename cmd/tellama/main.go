@@ -72,10 +72,10 @@ func runBot(cmd *cobra.Command, _ []string) {
 	genaiTimeout := viper.GetDuration("genai_timeout")
 	log.Debug().Dur("timeout", genaiTimeout).Msg("Using GenAI timeout")
 
-	// Read the allow unauthorized chats flag
-	viper.SetDefault("allow_unauthorized_chats", false)
-	allowUnauthorizedChats := viper.GetBool("allow_unauthorized_chats")
-	log.Debug().Bool("value", allowUnauthorizedChats).Msg("Allow unauthorized chats")
+	// Read the allow untrusted chats flag
+	viper.SetDefault("allow_untrusted_chats", false)
+	allowUntrustedChats := viper.GetBool("allow_untrusted_chats")
+	log.Debug().Bool("value", allowUntrustedChats).Msg("Allow untrusted chats")
 
 	// Read the Ollama host
 	viper.SetDefault("ollama.host", "http://localhost:11434")
@@ -110,7 +110,7 @@ func runBot(cmd *cobra.Command, _ []string) {
 		historyFetchLimit,
 		telegramTimeout,
 		genaiTimeout,
-		allowUnauthorizedChats,
+		allowUntrustedChats,
 		ollamaHost,
 		ollamaModel,
 		ollamaOptions,

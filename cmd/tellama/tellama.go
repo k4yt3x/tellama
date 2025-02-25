@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/k4yt3x/tellama/internal/database"
+	"github.com/k4yt3x/tellama/internal/utilities"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/ollama/ollama/api"
@@ -42,17 +43,17 @@ type ResponseMessages struct {
 }
 
 type Tellama struct {
-	historyFetchLimit      int
-	genaiTimeout           time.Duration
-	allowUnauthorizedChats bool
-	ollamaHost             string
-	ollamaModel            string
-	ollamaOptions          map[string]interface{}
-	responseMessages       ResponseMessages
-	template               string
-	sem                    chan struct{}
-	db                     *database.DatabaseManager
-	bot                    *telebot.Bot
+	historyFetchLimit   int
+	genaiTimeout        time.Duration
+	allowUntrustedChats bool
+	ollamaHost          string
+	ollamaModel         string
+	ollamaOptions       map[string]interface{}
+	responseMessages    ResponseMessages
+	template            string
+	sem                 chan struct{}
+	db                  *database.DatabaseManager
+	bot                 *telebot.Bot
 }
 
 func NewTellama(
@@ -61,7 +62,7 @@ func NewTellama(
 	historyFetchLimit int,
 	telegramTimeout time.Duration,
 	genaiTimeout time.Duration,
-	allowUnauthorizedChats bool,
+	allowUntrustedChats bool,
 	ollamaHost string,
 	ollamaModel string,
 	ollamaOptions map[string]interface{},
@@ -84,17 +85,17 @@ func NewTellama(
 
 	// Create a new Tellama instance
 	t := &Tellama{
-		historyFetchLimit:      historyFetchLimit,
-		genaiTimeout:           genaiTimeout,
-		allowUnauthorizedChats: allowUnauthorizedChats,
-		ollamaHost:             ollamaHost,
-		ollamaModel:            ollamaModel,
-		ollamaOptions:          ollamaOptions,
-		responseMessages:       responseMessages,
-		template:               template,
-		sem:                    make(chan struct{}, 1),
-		db:                     db,
-		bot:                    bot,
+		historyFetchLimit:   historyFetchLimit,
+		genaiTimeout:        genaiTimeout,
+		allowUntrustedChats: allowUntrustedChats,
+		ollamaHost:          ollamaHost,
+		ollamaModel:         ollamaModel,
+		ollamaOptions:       ollamaOptions,
+		responseMessages:    responseMessages,
+		template:            template,
+		sem:                 make(chan struct{}, 1),
+		db:                  db,
+		bot:                 bot,
 	}
 
 	// Initialize the semaphore with a token
@@ -242,7 +243,7 @@ func (t *Tellama) amnesia(ctx telebot.Context) error {
 		return nil
 	}
 
-	if !t.checkPermissions(chat, msg.Sender, msg) && !t.allowUnauthorizedChats {
+	if !t.checkPermissions(chat, msg.Sender, msg) && !t.allowUntrustedChats {
 		return ctx.Reply("You do not have permission to use this command.")
 	}
 
@@ -290,7 +291,7 @@ func (t *Tellama) processMessage(ctx telebot.Context) error {
 	}
 
 	// Verify user/group has permission to use the bot
-	if !t.checkPermissions(chat, user, message) && !t.allowUnauthorizedChats {
+	if !t.checkPermissions(chat, user, message) && !t.allowUntrustedChats {
 		if chat.Type == telebot.ChatPrivate {
 			return ctx.Reply(t.responseMessages.privateChatDisallowed)
 		}
@@ -371,20 +372,20 @@ func (t *Tellama) checkPermissions(
 	// Log the received message
 	log.Info().
 		Int64("chat_id", chat.ID).
-		Str("chat_title", chat.Title).
+		Str("chat_title", utilities.TruncateStrToLength(chat.Title, 8)).
 		Str("chat_type", string(chat.Type)).
-		Int64("sender_id", user.ID).
+		// Int64("sender_id", user.ID).
 		Str("username", user.Username).
-		Int("message_id", message.ID).
+		// Int("message_id", message.ID).
 		Str("text", message.Text).
 		Msg("Received message")
 
-	if !t.db.IsChatAllowed(chat.ID) {
+	if !t.db.IsChatTrusted(chat.ID) {
 		log.Warn().
 			Int64("chat_id", chat.ID).
 			Str("chat_title", chat.Title).
 			Int("message_id", message.ID).
-			Msg("Unauthorized chat")
+			Msg("Untrusted chat")
 		return false
 	}
 	return true
@@ -540,6 +541,7 @@ func (t *Tellama) generateResponse(
 
 	// Generate response from Ollama
 	var responseBuilder strings.Builder
+	var generateResponse api.GenerateResponse
 	err = ollamaClient.Generate(context.Background(),
 		&api.GenerateRequest{
 			Model:     model,
@@ -548,6 +550,7 @@ func (t *Tellama) generateResponse(
 			Prompt:    prompt.String(),
 			KeepAlive: &api.Duration{Duration: -1},
 		}, func(resp api.GenerateResponse) error {
+			generateResponse = resp
 			responseBuilder.WriteString(resp.Response)
 			return nil
 		})
@@ -556,18 +559,18 @@ func (t *Tellama) generateResponse(
 		return "", err
 	}
 
-	answer := strings.TrimSpace(responseBuilder.String())
+	response := strings.TrimSpace(responseBuilder.String())
 	log.Info().
-		Str("text", strings.ReplaceAll(answer, "\n", "\\n")).
+		Str("response", strings.ReplaceAll(response, "\n", "\\n")).
+		Str("duration", generateResponse.TotalDuration.String()).
+		Int("tokens", generateResponse.EvalCount).
 		Msg("Ollama response")
 
-	// Clean up response
-	if idx := strings.Index(answer, "</think>"); idx != -1 {
-		answer = strings.TrimSpace(answer[idx+len("</think>"):])
+	// Remove reasoning content
+	if idx := strings.Index(response, "</think>"); idx != -1 {
+		response = strings.TrimSpace(response[idx+len("</think>"):])
 	}
-	answer = strings.ReplaceAll(answer, "<|start_header_id|>assistant<|end_header_id|>", "")
-
-	return answer, nil
+	return response, nil
 }
 
 func (t *Tellama) storeUserMessage(

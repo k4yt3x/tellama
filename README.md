@@ -1,6 +1,6 @@
 # Tellama
 
-**Tellama** is a lightweight bot that integrates LLMs with Telegram's bot API. It allows you to chat with your favorite language model in Telegram private or group chats.
+Tellama is a lightweight bot that integrates LLMs with Telegram's bot API. It allows you to chat with your favorite language model in Telegram private or group chats.
 
 > [!IMPORTANT]
 > Tellama is still in early stages of development. You may run into bugs, unexpected behavior, or incomplete documentation. Please report any problems you encounter by [opening an issue](https://github.com/k4yt3x/tellama/issues/new).

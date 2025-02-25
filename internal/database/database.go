@@ -16,7 +16,7 @@ type DatabaseManager struct {
 	db *gorm.DB
 }
 
-type AllowedChat struct {
+type TrustedChat struct {
 	ID        uint   `gorm:"primaryKey;autoIncrement"`
 	ChatID    int64  `gorm:"unique"`
 	ChatTitle string `gorm:"unique"`
@@ -66,7 +66,7 @@ func NewDatabaseManager(dbPath string) (*DatabaseManager, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	err = db.AutoMigrate(&AllowedChat{}, &ChatOverride{}, &Message{}, &GenerationRequest{})
+	err = db.AutoMigrate(&TrustedChat{}, &ChatOverride{}, &Message{}, &GenerationRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to migrate tables: %w", err)
 	}
@@ -74,8 +74,8 @@ func NewDatabaseManager(dbPath string) (*DatabaseManager, error) {
 	return &DatabaseManager{db: db}, nil
 }
 
-func (dm *DatabaseManager) IsChatAllowed(chatID int64) bool {
-	var allowedChat AllowedChat
+func (dm *DatabaseManager) IsChatTrusted(chatID int64) bool {
+	var allowedChat TrustedChat
 	result := dm.db.Where("chat_id = ?", chatID).First(&allowedChat)
 	return !errors.Is(result.Error, gorm.ErrRecordNotFound)
 }
