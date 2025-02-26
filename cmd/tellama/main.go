@@ -98,9 +98,9 @@ func runBot(cmd *cobra.Command, _ []string) {
 
 	// Read the response messages
 	responseMessages := ResponseMessages{
-		privateChatDisallowed: viper.GetString("messages.private_chat_disallowed"),
-		internalError:         viper.GetString("messages.internal_error"),
-		serverBusy:            viper.GetString("messages.server_busy"),
+		PrivateChatDisallowed: viper.GetString("messages.private_chat_disallowed"),
+		InternalError:         viper.GetString("messages.internal_error"),
+		ServerBusy:            viper.GetString("messages.server_busy"),
 	}
 
 	// Initialize Tellama

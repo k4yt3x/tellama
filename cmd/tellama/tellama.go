@@ -37,9 +37,9 @@ You should respond in plain text.
 # End System Directives`
 
 type ResponseMessages struct {
-	privateChatDisallowed string
-	internalError         string
-	serverBusy            string
+	PrivateChatDisallowed string
+	InternalError         string
+	ServerBusy            string
 }
 
 type Tellama struct {
@@ -261,20 +261,6 @@ func (t *Tellama) amnesia(ctx telebot.Context) error {
 }
 
 func (t *Tellama) handleMessage(ctx telebot.Context) error {
-	select {
-	case <-t.sem:
-		defer func() { t.sem <- struct{}{} }()
-		return t.processMessage(ctx)
-	case <-time.After(t.genaiTimeout):
-		message := ctx.Message()
-		log.Warn().
-			Int("message_id", message.ID).
-			Msg("Failed to acquire semaphore to process message")
-		return ctx.Reply(t.responseMessages.serverBusy)
-	}
-}
-
-func (t *Tellama) processMessage(ctx telebot.Context) error {
 	// Validate that the received message is not empty
 	message := ctx.Message()
 	if message == nil || message.Text == "" {
@@ -293,7 +279,7 @@ func (t *Tellama) processMessage(ctx telebot.Context) error {
 	// Verify user/group has permission to use the bot
 	if !t.checkPermissions(chat, user, message) && !t.allowUntrustedChats {
 		if chat.Type == telebot.ChatPrivate {
-			return ctx.Reply(t.responseMessages.privateChatDisallowed)
+			return ctx.Reply(t.responseMessages.PrivateChatDisallowed)
 		}
 		return nil
 	}
@@ -302,7 +288,7 @@ func (t *Tellama) processMessage(ctx telebot.Context) error {
 	messages, err := t.db.GetMessages(chat.ID, t.historyFetchLimit)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get message history")
-		return ctx.Reply(t.responseMessages.internalError)
+		return ctx.Reply(t.responseMessages.InternalError)
 	}
 
 	// Store the user's message in the database
@@ -316,6 +302,25 @@ func (t *Tellama) processMessage(ctx telebot.Context) error {
 		return nil
 	}
 
+	select {
+	case <-t.sem:
+		defer func() { t.sem <- struct{}{} }()
+		return t.processMessage(ctx, chat, user, message, messages)
+	case <-time.After(t.genaiTimeout):
+		log.Warn().
+			Int("message_id", message.ID).
+			Msg("Failed to acquire semaphore to process message")
+		return ctx.Reply(t.responseMessages.ServerBusy)
+	}
+}
+
+func (t *Tellama) processMessage(
+	ctx telebot.Context,
+	chat *telebot.Chat,
+	user *telebot.User,
+	message *telebot.Message,
+	messages []database.Message,
+) error {
 	// Get override values for this chat
 	chatOverride, err := t.db.GetChatOverride(chat.ID)
 	if err != nil {
@@ -327,7 +332,7 @@ func (t *Tellama) processMessage(ctx telebot.Context) error {
 	messages, err = t.appendCurrentMessages(messages, chat, user, message, chatOverride)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to append current messages")
-		return ctx.Reply(t.responseMessages.internalError)
+		return ctx.Reply(t.responseMessages.InternalError)
 	}
 
 	// Generate bot's response using Ollama
@@ -339,7 +344,7 @@ func (t *Tellama) processMessage(ctx telebot.Context) error {
 	answer, err := t.generateResponse(messages, chatOverride)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate response")
-		return ctx.Reply(t.responseMessages.internalError)
+		return ctx.Reply(t.responseMessages.InternalError)
 	}
 
 	// Skip responding if the model indicates to do so
