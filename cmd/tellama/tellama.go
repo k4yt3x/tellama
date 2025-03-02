@@ -2,20 +2,17 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
 	"strings"
 	"text/template"
 	"time"
 
 	"github.com/k4yt3x/tellama/internal/database"
+	"github.com/k4yt3x/tellama/internal/genai"
 	"github.com/k4yt3x/tellama/internal/utilities"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/ollama/ollama/api"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/telebot.v4"
 )
@@ -43,17 +40,18 @@ type ResponseMessages struct {
 }
 
 type Tellama struct {
-	historyFetchLimit   int
-	genaiTimeout        time.Duration
-	allowUntrustedChats bool
-	ollamaHost          string
-	ollamaModel         string
-	ollamaOptions       map[string]interface{}
-	responseMessages    ResponseMessages
-	template            string
-	sem                 chan struct{}
-	db                  *database.DatabaseManager
-	bot                 *telebot.Bot
+	historyFetchLimit    int
+	genaiTimeout         time.Duration
+	allowUntrustedChats  bool
+	genaiProvider        genai.Provider
+	genaiMode            genai.Mode
+	genaiConfig          genai.ProviderConfig
+	genaiTemplate        string
+	genaiAllowConcurrent bool
+	responseMessages     ResponseMessages
+	sem                  chan struct{}
+	dm                   *database.Manager
+	bot                  *telebot.Bot
 }
 
 func NewTellama(
@@ -63,11 +61,12 @@ func NewTellama(
 	telegramTimeout time.Duration,
 	genaiTimeout time.Duration,
 	allowUntrustedChats bool,
-	ollamaHost string,
-	ollamaModel string,
-	ollamaOptions map[string]interface{},
+	genaiProvider genai.Provider,
+	genaiMode genai.Mode,
+	genaiConfig genai.ProviderConfig,
+	genaiTemplate string,
+	genaiAllowConcurrent bool,
 	responseMessages ResponseMessages,
-	template string,
 ) (*Tellama, error) {
 	db, err := database.NewDatabaseManager(dbPath)
 	if err != nil {
@@ -85,17 +84,18 @@ func NewTellama(
 
 	// Create a new Tellama instance
 	t := &Tellama{
-		historyFetchLimit:   historyFetchLimit,
-		genaiTimeout:        genaiTimeout,
-		allowUntrustedChats: allowUntrustedChats,
-		ollamaHost:          ollamaHost,
-		ollamaModel:         ollamaModel,
-		ollamaOptions:       ollamaOptions,
-		responseMessages:    responseMessages,
-		template:            template,
-		sem:                 make(chan struct{}, 1),
-		db:                  db,
-		bot:                 bot,
+		historyFetchLimit:    historyFetchLimit,
+		genaiTimeout:         genaiTimeout,
+		allowUntrustedChats:  allowUntrustedChats,
+		genaiProvider:        genaiProvider,
+		genaiMode:            genaiMode,
+		genaiConfig:          genaiConfig,
+		genaiTemplate:        genaiTemplate,
+		genaiAllowConcurrent: genaiAllowConcurrent,
+		responseMessages:     responseMessages,
+		sem:                  make(chan struct{}, 1),
+		dm:                   db,
+		bot:                  bot,
 	}
 
 	// Initialize the semaphore with a token
@@ -128,7 +128,7 @@ func (t *Tellama) getSysPrompt(ctx telebot.Context) error {
 		return ctx.Reply("You do not have permission to use this command.")
 	}
 
-	chatOverride, err := t.db.GetChatOverride(chat.ID)
+	chatOverride, err := t.dm.GetChatOverride(chat.ID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get prompt")
 		return ctx.Reply("Failed to get prompt. Please check logs for details.")
@@ -162,7 +162,7 @@ func (t *Tellama) setSysPrompt(ctx telebot.Context) error {
 		return ctx.Reply("Please provide a non-empty prompt to set.")
 	}
 
-	if err := t.db.SetChatOverride(chat.ID, chat.Title, "", "", "", prompt); err != nil {
+	if err := t.dm.SetChatOverride(chat.ID, chat.Title, "", "", "", "", prompt); err != nil {
 		log.Error().Err(err).Msg("Failed to set prompt")
 		return ctx.Reply("Failed to set prompt. Please check logs for details.")
 	}
@@ -186,7 +186,7 @@ func (t *Tellama) delSysPrompt(ctx telebot.Context) error {
 		return ctx.Reply("You do not have permission to use this command.")
 	}
 
-	if err := t.db.DeleteChatOverride(chat.ID); err != nil {
+	if err := t.dm.DeleteChatOverride(chat.ID); err != nil {
 		log.Error().Err(err).Msg("Failed to delete prompt")
 		return ctx.Reply("Failed to delete prompt. Please check logs for details.")
 	}
@@ -216,8 +216,8 @@ func (t *Tellama) getConfig(ctx telebot.Context) error {
 		Msg("Getting configuration")
 
 	config := map[string]interface{}{
-		"model":         t.ollamaModel,
-		"options":       t.ollamaOptions,
+		// "model":         t.ollamaModel,
+		// "options":       t.genaiOptions,
 		"history_limit": t.historyFetchLimit,
 		// "template":      t.template,
 	}
@@ -247,7 +247,7 @@ func (t *Tellama) amnesia(ctx telebot.Context) error {
 		return ctx.Reply("You do not have permission to use this command.")
 	}
 
-	if err := t.db.ClearMessages(chat.ID); err != nil {
+	if err := t.dm.ClearMessages(chat.ID); err != nil {
 		log.Error().Err(err).Msg("Failed to clear messages")
 		return ctx.Reply("Failed to clear messages. Please check logs for details.")
 	}
@@ -285,7 +285,7 @@ func (t *Tellama) handleMessage(ctx telebot.Context) error {
 	}
 
 	// Get historical messages for the chat
-	messages, err := t.db.GetMessages(chat.ID, t.historyFetchLimit)
+	messages, err := t.dm.GetMessages(chat.ID, t.historyFetchLimit)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get message history")
 		return ctx.Reply(t.responseMessages.InternalError)
@@ -300,6 +300,10 @@ func (t *Tellama) handleMessage(ctx telebot.Context) error {
 	// Check if this message should trigger a bot response
 	if !t.shouldProcessMessage(chat, message) {
 		return nil
+	}
+
+	if !t.genaiAllowConcurrent {
+		return t.processMessage(ctx, chat, user, message, messages)
 	}
 
 	select {
@@ -322,7 +326,7 @@ func (t *Tellama) processMessage(
 	messages []database.Message,
 ) error {
 	// Get override values for this chat
-	chatOverride, err := t.db.GetChatOverride(chat.ID)
+	chatOverride, err := t.dm.GetChatOverride(chat.ID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get chat override")
 		return err
@@ -341,24 +345,24 @@ func (t *Tellama) processMessage(
 		Int("message_id", message.ID).
 		Msg("Generating response for message")
 
-	answer, err := t.generateResponse(messages, chatOverride)
+	response, err := t.generateResponse(messages, chatOverride)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate response")
 		return ctx.Reply(t.responseMessages.InternalError)
 	}
 
-	// Skip responding if the model indicates to do so
-	if answer == "<skip>" {
+	if response == "" {
+		log.Warn().Msg("Received empty response from generative AI")
 		return nil
 	}
 
 	// Send the response back to the chat
-	_, err = ctx.Bot().Reply(message, answer, telebot.ModeMarkdown)
+	_, err = ctx.Bot().Reply(message, response, telebot.ModeMarkdown)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to send reply with Markdown formatting")
 
 		// Retry sending the response without Markdown formatting
-		_, err = ctx.Bot().Reply(message, answer)
+		_, err = ctx.Bot().Reply(message, response)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to send reply")
 			return err
@@ -366,7 +370,7 @@ func (t *Tellama) processMessage(
 	}
 
 	// Store the bot's response in the database
-	return t.storeBotResponse(chat, answer)
+	return t.storeBotResponse(chat, response)
 }
 
 func (t *Tellama) checkPermissions(
@@ -385,7 +389,7 @@ func (t *Tellama) checkPermissions(
 		Str("text", message.Text).
 		Msg("Received message")
 
-	if !t.db.IsChatTrusted(chat.ID) {
+	if !t.dm.IsChatTrusted(chat.ID) {
 		log.Warn().
 			Int64("chat_id", chat.ID).
 			Str("chat_title", chat.Title).
@@ -484,92 +488,97 @@ func (t *Tellama) generateResponse(
 	messages []database.Message,
 	chatOverride database.ChatOverride,
 ) (string, error) {
-	// Load the prompt template
-	promptTemplate := template.Must(template.New("prompt").Parse(t.template))
+	// Make a copy of the generative AI configuration
+	genaiConfig := t.genaiConfig
 
-	// Render the prompt to be sent to Ollama
-	var prompt bytes.Buffer
-	err := promptTemplate.Execute(&prompt, messages)
+	// Apply chat override values
+	switch t.genaiProvider {
+	case genai.ProviderOllama:
+		ollamaConfig, ok := genaiConfig.(*genai.OllamaConfig)
+		if !ok {
+			return "", fmt.Errorf("invalid config type for Ollama")
+		}
+		if chatOverride.BaseURL != "" {
+			ollamaConfig.BaseURL = chatOverride.BaseURL
+		}
+		if chatOverride.Model != "" {
+			ollamaConfig.Model = chatOverride.Model
+		}
+		if chatOverride.Options != "" {
+			err := json.Unmarshal([]byte(chatOverride.Options), &ollamaConfig.Options)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to unmarshal chat override options")
+				return "", err
+			}
+		}
+	case genai.ProviderOpenAI:
+		openaiConfig, ok := genaiConfig.(*genai.OpenAIConfig)
+		if !ok {
+			return "", fmt.Errorf("invalid config type for OpenAI")
+		}
+		if chatOverride.BaseURL != "" {
+			openaiConfig.BaseURL = chatOverride.BaseURL
+		}
+		if chatOverride.APIKey != "" {
+			openaiConfig.APIKey = chatOverride.APIKey
+		}
+		if chatOverride.Model != "" {
+			openaiConfig.Model = chatOverride.Model
+		}
+	}
+
+	genaiClient, err := genai.New(t.genaiProvider, t.genaiConfig)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to execute prompt template")
+		log.Error().Err(err).Msg("Failed to create generative AI client")
 		return "", err
 	}
 
-	ollamaHost := t.ollamaHost
-	if chatOverride.OllamaHost != "" {
-		ollamaHost = chatOverride.OllamaHost
-	}
+	var response string
+	var genStats genai.GenerateStats
+	switch t.genaiMode {
+	case genai.ModeChat:
+		genaiMessages := make([]genai.Message, len(messages))
+		for i, message := range messages {
+			genaiMessages[i] = genai.Message{
+				Role:    message.Role,
+				Content: message.Content,
+			}
+		}
 
-	ollamaHostURL, err := url.Parse(ollamaHost)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to parse Ollama host URL")
-	}
-	ollamaClient := api.NewClient(ollamaHostURL, http.DefaultClient)
-
-	model := t.ollamaModel
-	if chatOverride.Model != "" {
-		model = chatOverride.Model
-	}
-
-	var options map[string]interface{}
-	if chatOverride.Options != "" {
-		err = json.Unmarshal([]byte(chatOverride.Options), &options)
+		// Use the generative AI to chat with the user
+		response, genStats, err = genaiClient.Chat(genaiMessages)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to unmarshal chat override options")
+			log.Error().Err(err).Msg("Generative AI completion error")
 			return "", err
 		}
-	} else {
-		options = t.ollamaOptions
+	case genai.ModeCompletion:
+		// Load the prompt template
+		promptTemplate := template.Must(template.New("prompt").Parse(t.genaiTemplate))
+
+		// Render the prompt to be sent to the generative AI
+		var prompt bytes.Buffer
+		err = promptTemplate.Execute(&prompt, messages)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to execute prompt template")
+			return "", err
+		}
+
+		// Use the generative AI to complete the prompt
+		response, genStats, err = genaiClient.Complete(prompt.String())
+		if err != nil {
+			log.Error().Err(err).Msg("Generative AI completion error")
+			return "", err
+		}
+	default:
+		return "", fmt.Errorf("unsupported Generative AI mode: %s", t.genaiMode)
 	}
 
-	// Marshal Ollama options to JSON
-	optionsJSON, err := json.Marshal(options)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to marshal Ollama options")
-	}
-
-	// Store the generation request in the database
-	currentMessage := messages[len(messages)-1]
-	err = t.db.StoreGenerationRequest(
-		currentMessage.ChatID,
-		currentMessage.ChatTitle,
-		currentMessage.UserID,
-		currentMessage.Username,
-		model,
-		string(optionsJSON),
-		prompt.String(),
-		ollamaHost,
-	)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to store the generation request")
-	}
-
-	// Generate response from Ollama
-	var responseBuilder strings.Builder
-	var generateResponse api.GenerateResponse
-	err = ollamaClient.Generate(context.Background(),
-		&api.GenerateRequest{
-			Model:     model,
-			Options:   options,
-			Raw:       true,
-			Prompt:    prompt.String(),
-			KeepAlive: &api.Duration{Duration: -1},
-		}, func(resp api.GenerateResponse) error {
-			generateResponse = resp
-			responseBuilder.WriteString(resp.Response)
-			return nil
-		})
-	if err != nil {
-		log.Error().Err(err).Msg("Ollama chat error")
-		return "", err
-	}
-
-	response := strings.TrimSpace(responseBuilder.String())
+	response = strings.TrimSpace(response)
 	log.Info().
 		Str("response", strings.ReplaceAll(response, "\n", "\\n")).
-		Str("duration", generateResponse.TotalDuration.String()).
-		Int("tokens", generateResponse.EvalCount).
-		Msg("Ollama response")
+		Str("duration", genStats.TotalDuration.String()).
+		Int64("tokens", genStats.TokenCount).
+		Msg("Generative AI response")
 
 	// Remove reasoning content
 	if idx := strings.Index(response, "</think>"); idx != -1 {
@@ -583,7 +592,7 @@ func (t *Tellama) storeUserMessage(
 	user *telebot.User,
 	text string,
 ) error {
-	err := t.db.StoreMessage(
+	err := t.dm.StoreMessage(
 		chat.ID,
 		chat.Title,
 		"user",
@@ -600,7 +609,7 @@ func (t *Tellama) storeUserMessage(
 }
 
 func (t *Tellama) storeBotResponse(chat *telebot.Chat, answer string) error {
-	err := t.db.StoreMessage(
+	err := t.dm.StoreMessage(
 		chat.ID,
 		chat.Title,
 		"assistant",

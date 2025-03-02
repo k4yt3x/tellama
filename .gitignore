@@ -10,7 +10,9 @@ tellama.yml
 
 # Tellama database files
 *.db
-*.db.bak
+
+# Backup files
+*.bak
 
 # Compiled binaries
 bin/

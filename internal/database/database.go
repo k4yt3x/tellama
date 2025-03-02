@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-type DatabaseManager struct {
+type Manager struct {
 	db *gorm.DB
 }
 
@@ -26,7 +26,8 @@ type ChatOverride struct {
 	ID           uint  `gorm:"primaryKey;autoIncrement"`
 	ChatID       int64 `gorm:"unique"`
 	ChatTitle    string
-	OllamaHost   string
+	BaseURL      string
+	APIKey       string
 	Model        string
 	Options      string
 	SystemPrompt string
@@ -45,20 +46,7 @@ type Message struct {
 	Content   string
 }
 
-type GenerationRequest struct {
-	ID         uint      `gorm:"primaryKey;autoIncrement"`
-	Timestamp  time.Time `gorm:"autoCreateTime"`
-	ChatID     int64     `gorm:"index"`
-	ChatTitle  string
-	UserID     int64
-	Username   string
-	Model      string
-	Options    string
-	Prompt     string
-	OllamaHost string
-}
-
-func NewDatabaseManager(dbPath string) (*DatabaseManager, error) {
+func NewDatabaseManager(dbPath string) (*Manager, error) {
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -66,21 +54,21 @@ func NewDatabaseManager(dbPath string) (*DatabaseManager, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	err = db.AutoMigrate(&TrustedChat{}, &ChatOverride{}, &Message{}, &GenerationRequest{})
+	err = db.AutoMigrate(&TrustedChat{}, &ChatOverride{}, &Message{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to migrate tables: %w", err)
 	}
 
-	return &DatabaseManager{db: db}, nil
+	return &Manager{db: db}, nil
 }
 
-func (dm *DatabaseManager) IsChatTrusted(chatID int64) bool {
+func (dm *Manager) IsChatTrusted(chatID int64) bool {
 	var allowedChat TrustedChat
 	result := dm.db.Where("chat_id = ?", chatID).First(&allowedChat)
 	return !errors.Is(result.Error, gorm.ErrRecordNotFound)
 }
 
-func (dm *DatabaseManager) GetGlobalChatOverride() (ChatOverride, error) {
+func (dm *Manager) GetGlobalChatOverride() (ChatOverride, error) {
 	var chatOverride ChatOverride
 	result := dm.db.Where("chat_id IS NULL").First(&chatOverride)
 	if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -89,7 +77,7 @@ func (dm *DatabaseManager) GetGlobalChatOverride() (ChatOverride, error) {
 	return chatOverride, nil
 }
 
-func (dm *DatabaseManager) GetChatOverride(chatID int64) (ChatOverride, error) {
+func (dm *Manager) GetChatOverride(chatID int64) (ChatOverride, error) {
 	// Get the default chat override
 	globalChatOverride, err := dm.GetGlobalChatOverride()
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -110,8 +98,11 @@ func (dm *DatabaseManager) GetChatOverride(chatID int64) (ChatOverride, error) {
 	if chatOverride.ChatTitle != "" {
 		globalChatOverride.ChatTitle = chatOverride.ChatTitle
 	}
-	if chatOverride.OllamaHost != "" {
-		globalChatOverride.OllamaHost = chatOverride.OllamaHost
+	if chatOverride.BaseURL != "" {
+		globalChatOverride.BaseURL = chatOverride.BaseURL
+	}
+	if chatOverride.APIKey != "" {
+		globalChatOverride.APIKey = chatOverride.APIKey
 	}
 	if chatOverride.Model != "" {
 		globalChatOverride.Model = chatOverride.Model
@@ -126,10 +117,11 @@ func (dm *DatabaseManager) GetChatOverride(chatID int64) (ChatOverride, error) {
 	return globalChatOverride, nil
 }
 
-func (dm *DatabaseManager) SetChatOverride(
+func (dm *Manager) SetChatOverride(
 	chatID int64,
 	chatTitle string,
-	ollamaHost string,
+	baseURL string,
+	apiKey string,
 	model string,
 	options string,
 	systemPrompt string,
@@ -145,9 +137,13 @@ func (dm *DatabaseManager) SetChatOverride(
 		chatOverride.ChatTitle = chatTitle
 		updates["chat_title"] = chatTitle
 	}
-	if ollamaHost != "" {
-		chatOverride.OllamaHost = ollamaHost
-		updates["ollama_host"] = ollamaHost
+	if baseURL != "" {
+		chatOverride.BaseURL = baseURL
+		updates["base_url"] = baseURL
+	}
+	if apiKey != "" {
+		chatOverride.APIKey = apiKey
+		updates["api_key"] = apiKey
 	}
 	if model != "" {
 		chatOverride.Model = model
@@ -171,11 +167,11 @@ func (dm *DatabaseManager) SetChatOverride(
 	).Create(&chatOverride).Error
 }
 
-func (dm *DatabaseManager) DeleteChatOverride(chatID int64) error {
+func (dm *Manager) DeleteChatOverride(chatID int64) error {
 	return dm.db.Where("chat_id = ?", chatID).Delete(&ChatOverride{}).Error
 }
 
-func (dm *DatabaseManager) StoreMessage(
+func (dm *Manager) StoreMessage(
 	chatID int64,
 	chatTitle string,
 	role string,
@@ -197,7 +193,7 @@ func (dm *DatabaseManager) StoreMessage(
 	}).Error
 }
 
-func (dm *DatabaseManager) GetMessages(chatID int64, limit int) ([]Message, error) {
+func (dm *Manager) GetMessages(chatID int64, limit int) ([]Message, error) {
 	var messages []Message
 	result := dm.db.Where("chat_id = ?", chatID).
 		Order("id DESC").
@@ -226,28 +222,6 @@ func (dm *DatabaseManager) GetMessages(chatID int64, limit int) ([]Message, erro
 	return history, nil
 }
 
-func (dm *DatabaseManager) ClearMessages(chatID int64) error {
+func (dm *Manager) ClearMessages(chatID int64) error {
 	return dm.db.Where("chat_id = ?", chatID).Delete(&Message{}).Error
-}
-
-func (dm *DatabaseManager) StoreGenerationRequest(
-	chatID int64,
-	chatTitle string,
-	userID int64,
-	username string,
-	model string,
-	options string,
-	prompt string,
-	ollamaHost string,
-) error {
-	return dm.db.Create(&GenerationRequest{
-		ChatID:     chatID,
-		ChatTitle:  chatTitle,
-		UserID:     userID,
-		Username:   username,
-		Model:      model,
-		Options:    options,
-		Prompt:     prompt,
-		OllamaHost: ollamaHost,
-	}).Error
 }

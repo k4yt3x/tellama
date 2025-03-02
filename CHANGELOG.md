@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Support for OpenAI API as generative AI backend.
+
+## [0.2.0] - 2025-02-25
+
+### Added
+
 - A configuration file that manages settings for both the Telegram bot and the language model.
 - Tests for the database manager module.
 - The `/amnesia` command to clear the context of the current chat.

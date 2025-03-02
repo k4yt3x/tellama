@@ -1,31 +1,59 @@
-# The Telegram Bot API token
-telegram_bot_token: YOUR_TELEGRAM_BOT_TOKEN
+# Database options
+database:
+  # (string) Path to the SQLite3 database
+  path: tellama.db
 
-# Path to the SQLite3 database
-database_path: tellama.db
+  # (int) The maximum number of history messages to fetch from the database
+  history_fetch_limit: 10000
 
-# The maximum number of history messages to fetch from the database
-history_fetch_limit: 10000
+# Telegram options
+telegram:
+  # (string) The Telegram Bot API token
+  bot_token: 0000000000:XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
-# Telegram API timeout duration
-telegram_timeout: 10s
+  # (time.Duration) Telegram API timeout duration
+  timeout: 10s
 
-# Generative AI timeout duration
-genai_timeout: 15s
+  # (bool) Allow untrusted chats
+  # Only the /amnesia command is allowed in untrusted chats
+  allow_untrusted_chats: true
 
-# Allow untrusted chats
-# Only the /amnesia command is allowed in untrusted chats
-allow_untrusted_chats: false
+# Generative AI options
+genai:
+  # (time.Duration) Generative AI timeout duration
+  timeout: 10s
+
+  # (bool) Allow concurrent calls to the generative AI provider
+  allow_concurrent: false
+
+  # (string) The generative AI provider to use
+  # Options: ollama, openai
+  provider: ollama
+
+  # (string) The generative AI processing mode
+  # Options: chat, completion
+  mode: chat
+
+  # (string) The template used to render content sent to Ollama
+  # Only used in completion mode
+  template: >-
+    {{range .}}<|start_header_id|>{{.Role}}{{if eq .Role "user"}}
+    first_name="{{.FirstName}}"{{if .LastName}}
+    last_name="{{.LastName}}"{{end}}{{if .Username}}
+    username="@{{.Username}}"{{end}}{{end}}<|end_header_id|>
+
+
+    {{.Content}}<|eot_id|>{{end}}<|start_header_id|>assistant<|end_header_id|>
 
 # Ollama options
 ollama:
-  # The Ollama host
+  # (string) The Ollama host
   host: http://localhost:11434
 
-  # The model used to generate responses
+  # (string) The model used to generate responses
   model: llama3.3:70b
 
-  # Ollama request options
+  # (map[string]interface{}) Ollama request options
   options:
     # num_ctx: 2048
     # num_keep: 0
@@ -46,17 +74,27 @@ ollama:
     # max_new_tokens: 512
     # stop: ["</stop>"]
 
+# OpenAI options
+openai:
+  # (string) The OpenAI-compatible API base URL
+  # IMPORTANT: The URL must end with a trailing slash
+  base_url: https://api.openai.com/v1/
+
+  # (string) The OpenAI API key
+  api_key: sk-proj-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+  # (string) The OpenAI model ID
+  model: gpt-4o
+
+  # The OpenAI request options
+  # reasoning_effort: medium
+  # frequency_penalty: 0.0
+  # presence_penalty: 0.0
+  # temperature: 1.0
+  # top_p: 1.0
+
 # System response messages
 messages:
   private_chat_disallowed: "Sorry, you don't have permission to chat with me."
   internal_error: "An internal error occurred. Please try again later."
-
-# The template used to render content sent to Ollama
-template: >-
-  {{range .}}<|start_header_id|>{{.Role}}
-  {{if eq .Role "user"}}first_name="{{.FirstName}}"
-  {{if .LastName}}last_name="{{.LastName}}"{{end}}
-  {{if .Username}}username="@{{.Username}}"{{end}}{{end}}<|end_header_id|>
-
-
-  {{.Content}}<|eot_id|>{{end}}<|start_header_id|>assistant<|end_header_id|>
+  server_busy: "The server is overloaded. Please try again later."
