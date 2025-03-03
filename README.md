@@ -50,7 +50,7 @@ docker run \
   --network=host \
   -v $PWD/tellama.yaml:/data/tellama.yaml \
   -v $PWD/tellama.db:/data/tellama.db \
-  ghcr.io/k4yt3x/tellama:0.2.0
+  ghcr.io/k4yt3x/tellama:0.3.0
 ```
 
 ### 3.B: Run on Bare Metal
