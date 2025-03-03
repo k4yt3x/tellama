@@ -2,11 +2,6 @@
 
 Tellama is a lightweight bot that integrates LLMs with Telegram's bot API. It allows you to chat with your favorite language model in Telegram private or group chats.
 
-> [!IMPORTANT]
-> Tellama is still in early stages of development. You may run into bugs, unexpected behavior, or incomplete documentation. Please report any problems you encounter by [opening an issue](https://github.com/k4yt3x/tellama/issues/new).
-
-Here is a demo of Tellama in action:
-
 <p align="center">
    <img src="https://github.com/user-attachments/assets/d573da74-79ca-463e-ad6f-eb9422a8eb36"/>
 </p>
@@ -34,11 +29,14 @@ The built binary will be located at `bin/tellama`.
 
 ### 2. Setup Telegram Bot and LLM Backend
 
-Make a copy of the `configs/tellama.yaml` configuration file and name it `tellama.yaml`.
-
-You will need to, at minimum, create a Telegram bot and obtain a Telegram bot token from [BotFather](@BotFather). Replace `YOUR_TELEGRAM_BOT_TOKEN` in the configuration file with the token you obtained.
-
-You can also customize the options for the LLM backend like setting the model name, temperature, and context length. Currently, [Ollama](https://github.com/ollama/ollama) is the only supported LLM backend, but support for more providers like OpenAI and Gemini will be added.
+1. Make a copy of the `configs/tellama.yaml` configuration file and name it `tellama.yaml`.
+1. Create a Telegram bot and obtain a Telegram bot token from [BotFather](@BotFather).
+1. Fill in the `telegram.bot_token` section in the configuration file with the token you obtained.
+1. Setup an LLM backend:
+   - [Ollama](https://github.com/ollama/ollama): Install and start Ollama on your machine and pull the models you want to use.
+   - [OpenAI API](https://github.com/openai/openai-go): Obtain the OpenAI API base URL and API key.
+1. Set the `genai.provider` to `ollama` or `openai` based on the backend you are using.
+1. Fill in the `ollama` or `openai` section in the configuration file with the appropriate values.
 
 ### 3.A: Run with Docker
 
@@ -68,7 +66,7 @@ bin/tellama
 You will need to add a custom default system prompt. Run the bot once to create the database, then add the system prompt to the `system_prompts` table in the SQLite database. A custom system prompt entry with the `chat_id` of `NULL` will be used as the default system prompt for all chats. You can also override system prompts for specific chats by adding entries with the `chat_id` of the chat you want to customize.
 
 ```sql
-INSERT INTO system_prompts (system_prompt) VALUES ('Your name is Tellama.');
+INSERT INTO chat_overrides (system_prompt) VALUES ('Your name is Tellama.');
 ```
 
 Here is an example for how the instructions could look:
