@@ -131,7 +131,7 @@ func (dm *Manager) SetChatOverride(
 	}
 
 	// Prepare the map of columns to update only if the field is non-empty
-	updates := map[string]interface{}{}
+	updates := map[string]any{}
 
 	if chatTitle != "" {
 		chatOverride.ChatTitle = chatTitle

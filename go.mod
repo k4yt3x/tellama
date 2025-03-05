@@ -6,6 +6,7 @@ require (
 	github.com/go-faker/faker/v4 v4.6.0
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/ollama/ollama v0.5.11
+	github.com/openai/openai-go v0.1.0-alpha.59
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/cobra v1.9.0
 	github.com/spf13/viper v1.19.0
@@ -26,7 +27,6 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
-	github.com/openai/openai-go v0.1.0-alpha.59 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/sagikazarmark/locafero v0.7.0 // indirect

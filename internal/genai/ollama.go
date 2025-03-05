@@ -14,13 +14,13 @@ import (
 type Ollama struct {
 	Client  *api.Client
 	Model   string
-	Options map[string]interface{}
+	Options map[string]any
 }
 
 type OllamaConfig struct {
 	BaseURL string
 	Model   string
-	Options map[string]interface{}
+	Options map[string]any
 }
 
 func (c *OllamaConfig) Validate() error {

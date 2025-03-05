@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"text/template"
 	"time"
 
+	"github.com/k4yt3x/tellama/internal/config"
 	"github.com/k4yt3x/tellama/internal/database"
 	"github.com/k4yt3x/tellama/internal/genai"
 	"github.com/k4yt3x/tellama/internal/utilities"
@@ -33,12 +35,6 @@ You should respond in plain text.
 
 # End System Directives`
 
-type ResponseMessages struct {
-	PrivateChatDisallowed string
-	InternalError         string
-	ServerBusy            string
-}
-
 type Tellama struct {
 	historyFetchLimit    int
 	genaiTimeout         time.Duration
@@ -48,7 +44,7 @@ type Tellama struct {
 	genaiConfig          genai.ProviderConfig
 	genaiTemplate        string
 	genaiAllowConcurrent bool
-	responseMessages     ResponseMessages
+	responseMessages     config.ResponseMessages
 	sem                  chan struct{}
 	dm                   *database.Manager
 	bot                  *telebot.Bot
@@ -66,7 +62,7 @@ func NewTellama(
 	genaiConfig genai.ProviderConfig,
 	genaiTemplate string,
 	genaiAllowConcurrent bool,
-	responseMessages ResponseMessages,
+	responseMessages config.ResponseMessages,
 ) (*Tellama, error) {
 	db, err := database.NewDatabaseManager(dbPath)
 	if err != nil {
@@ -215,7 +211,7 @@ func (t *Tellama) getConfig(ctx telebot.Context) error {
 		Int64("user_id", msg.Sender.ID).
 		Msg("Getting configuration")
 
-	config := map[string]interface{}{
+	config := map[string]any{
 		// "model":         t.ollamaModel,
 		// "options":       t.genaiOptions,
 		"history_limit": t.historyFetchLimit,
@@ -345,7 +341,13 @@ func (t *Tellama) processMessage(
 		Int("message_id", message.ID).
 		Msg("Generating response for message")
 
-	response, err := t.generateResponse(messages, chatOverride)
+	genaiClient, err := t.createGenaiClient(chatOverride)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to create generative AI client")
+		return ctx.Reply(t.responseMessages.InternalError)
+	}
+
+	response, err := t.generateResponse(messages, genaiClient)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate response")
 		return ctx.Reply(t.responseMessages.InternalError)
@@ -444,7 +446,7 @@ func (t *Tellama) appendCurrentMessages(
 	)
 
 	// Inject context information into the system prompt template
-	contextInfo := map[string]interface{}{
+	contextInfo := map[string]any{
 		"CurrentTime": time.Now().UTC().Format(time.RFC3339),
 		"ChatTitle":   title,
 		"ChatType":    chat.Type,
@@ -484,10 +486,9 @@ func (t *Tellama) appendCurrentMessages(
 	}), nil
 }
 
-func (t *Tellama) generateResponse(
-	messages []database.Message,
+func (t *Tellama) createGenaiClient( //nolint:gocognit // Complexity is acceptable
 	chatOverride database.ChatOverride,
-) (string, error) {
+) (genai.GenerativeAI, error) {
 	// Make a copy of the generative AI configuration
 	genaiConfig := t.genaiConfig
 
@@ -496,7 +497,7 @@ func (t *Tellama) generateResponse(
 	case genai.ProviderOllama:
 		ollamaConfig, ok := genaiConfig.(*genai.OllamaConfig)
 		if !ok {
-			return "", fmt.Errorf("invalid config type for Ollama")
+			return nil, errors.New("invalid config type for Ollama")
 		}
 		if chatOverride.BaseURL != "" {
 			ollamaConfig.BaseURL = chatOverride.BaseURL
@@ -508,13 +509,13 @@ func (t *Tellama) generateResponse(
 			err := json.Unmarshal([]byte(chatOverride.Options), &ollamaConfig.Options)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to unmarshal chat override options")
-				return "", err
+				return nil, err
 			}
 		}
 	case genai.ProviderOpenAI:
 		openaiConfig, ok := genaiConfig.(*genai.OpenAIConfig)
 		if !ok {
-			return "", fmt.Errorf("invalid config type for OpenAI")
+			return nil, errors.New("invalid config type for OpenAI")
 		}
 		if chatOverride.BaseURL != "" {
 			openaiConfig.BaseURL = chatOverride.BaseURL
@@ -530,11 +531,20 @@ func (t *Tellama) generateResponse(
 	genaiClient, err := genai.New(t.genaiProvider, t.genaiConfig)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create generative AI client")
-		return "", err
+		return nil, err
 	}
 
+	return genaiClient, nil
+}
+
+func (t *Tellama) generateResponse(
+	messages []database.Message,
+	genaiClient genai.GenerativeAI,
+) (string, error) {
 	var response string
 	var genStats genai.GenerateStats
+	var err error
+
 	switch t.genaiMode {
 	case genai.ModeChat:
 		genaiMessages := make([]genai.Message, len(messages))

@@ -48,7 +48,7 @@ genai:
 # Ollama options
 ollama:
   # (string) The Ollama host
-  host: http://localhost:11434
+  base_url: http://localhost:11434
 
   # (string) The model used to generate responses
   model: llama3.3:70b
