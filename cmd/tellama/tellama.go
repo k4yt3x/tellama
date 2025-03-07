@@ -298,7 +298,7 @@ func (t *Tellama) handleMessage(ctx telebot.Context) error {
 		return nil
 	}
 
-	if !t.genaiAllowConcurrent {
+	if t.genaiAllowConcurrent {
 		return t.processMessage(ctx, chat, user, message, messages)
 	}
 
