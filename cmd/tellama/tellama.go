@@ -211,12 +211,57 @@ func (t *Tellama) getConfig(ctx telebot.Context) error {
 		Int64("user_id", msg.Sender.ID).
 		Msg("Getting configuration")
 
-	config := map[string]any{
-		// "model":         t.ollamaModel,
-		// "options":       t.genaiOptions,
-		"history_limit": t.historyFetchLimit,
-		// "template":      t.template,
+	// Get override values for this chat
+	chatOverride, err := t.dm.GetChatOverride(chat.ID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get chat override")
+		return ctx.Reply(t.responseMessages.InternalError)
 	}
+
+	genaiConfig, err := t.applyChatOverride(chatOverride)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to apply chat override")
+		return ctx.Reply(t.responseMessages.InternalError)
+	}
+
+	config := map[string]any{}
+
+	// Marshal the config struct to JSON then unmarshal to map to get all fields
+	var providerConfig map[string]any
+	var configBytes []byte
+	var providerName string
+	var configObj any
+	var ok bool
+
+	switch t.genaiProvider {
+	case genai.ProviderOllama:
+		providerName = "ollama"
+		configObj, ok = genaiConfig.(*genai.OllamaConfig)
+	case genai.ProviderOpenAI:
+		providerName = "openai"
+		configObj, ok = genaiConfig.(*genai.OpenAIConfig)
+	}
+
+	if !ok || configObj == nil {
+		return ctx.Reply(fmt.Sprintf("Invalid configuration type for %s", providerName))
+	}
+
+	// Marshal the config to JSON
+	configBytes, err = json.Marshal(configObj)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to marshal %s configuration", providerName)
+		return ctx.Reply("Failed to serialize configuration")
+	}
+
+	// Unmarshal into a map to get all fields
+	err = json.Unmarshal(configBytes, &providerConfig)
+	if err != nil {
+		log.Error().Err(err).Msgf("Failed to unmarshal %s configuration", providerName)
+		return ctx.Reply("Failed to process configuration")
+	}
+
+	config["provider"] = providerName
+	config[providerName] = providerConfig
 
 	jsonData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
@@ -225,7 +270,7 @@ func (t *Tellama) getConfig(ctx telebot.Context) error {
 	}
 
 	var reply strings.Builder
-	reply.WriteString("Current configuration:\n\n```json")
+	reply.WriteString("Current configuration:\n\n```json\n")
 	reply.Write(jsonData)
 	reply.WriteString("\n```")
 
@@ -341,7 +386,13 @@ func (t *Tellama) processMessage(
 		Int("message_id", message.ID).
 		Msg("Generating response for message")
 
-	genaiClient, err := t.createGenaiClient(chatOverride)
+	genaiConfig, err := t.applyChatOverride(chatOverride)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to apply chat override")
+		return ctx.Reply(t.responseMessages.InternalError)
+	}
+
+	genaiClient, err := genai.New(t.genaiProvider, genaiConfig)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create generative AI client")
 		return ctx.Reply(t.responseMessages.InternalError)
@@ -383,7 +434,7 @@ func (t *Tellama) checkPermissions(
 	// Log the received message
 	log.Info().
 		Int64("chat_id", chat.ID).
-		Str("chat_title", utilities.TruncateStrToLength(chat.Title, 8)).
+		Str("chat_title", utilities.TruncateStrToLength(chat.Title, 12)).
 		Str("chat_type", string(chat.Type)).
 		// Int64("sender_id", user.ID).
 		Str("username", user.Username).
@@ -447,14 +498,14 @@ func (t *Tellama) appendCurrentMessages(
 
 	// Inject context information into the system prompt template
 	contextInfo := map[string]any{
-		"CurrentTime": time.Now().UTC().Format(time.RFC3339),
+		"CurrentTime": time.Now().UTC().Format("Monday, January 2, 2006, 15:04:05 MST"),
 		"ChatTitle":   title,
 		"ChatType":    chat.Type,
 	}
 
 	// Include the reply message in the context if the message is a reply to the bot
 	if isReplyToBot {
-		contextInfo["ReplyMessage"] = msg.ReplyTo.Text
+		contextInfo["ReplyMessage"] = utilities.TruncateStrToLength(msg.ReplyTo.Text, 20)
 	}
 
 	var systemPrompt bytes.Buffer
@@ -486,9 +537,9 @@ func (t *Tellama) appendCurrentMessages(
 	}), nil
 }
 
-func (t *Tellama) createGenaiClient( //nolint:gocognit // Complexity is acceptable
+func (t *Tellama) applyChatOverride(
 	chatOverride database.ChatOverride,
-) (genai.GenerativeAI, error) {
+) (genai.ProviderConfig, error) {
 	// Make a copy of the generative AI configuration
 	genaiConfig := t.genaiConfig
 
@@ -528,13 +579,7 @@ func (t *Tellama) createGenaiClient( //nolint:gocognit // Complexity is acceptab
 		}
 	}
 
-	genaiClient, err := genai.New(t.genaiProvider, t.genaiConfig)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to create generative AI client")
-		return nil, err
-	}
-
-	return genaiClient, nil
+	return genaiConfig, nil
 }
 
 func (t *Tellama) generateResponse(

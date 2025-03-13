@@ -53,7 +53,7 @@ ollama:
   # (string) The model used to generate responses
   model: llama3.3:70b
 
-  # (map[string]interface{}) Ollama request options
+  # (map[string]any{}) Ollama request options
   options:
     # num_ctx: 2048
     # num_keep: 0

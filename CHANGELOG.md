@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The format of the current time passed to the system prompt template.
+- The implementation of the `/getconfig` command to display the current configuration.
+- Truncate the reply message for the bot to 20 characters.
+
+### Fixed
+
+- The issue where the `/getconfig` command JSON code block was missing a newline character.
+
 ## [0.3.0] - 2025-03-02
 
 ### Added

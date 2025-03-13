@@ -5,8 +5,8 @@ func TruncateStrToLength(input string, maxLength int) string {
 	if len(runes) <= maxLength {
 		return input
 	}
-	if maxLength < 3 {
+	if maxLength < 1 {
 		return string(runes[:maxLength])
 	}
-	return string(runes[:maxLength-3]) + "..."
+	return string(runes[:maxLength-1]) + "…"
 }
