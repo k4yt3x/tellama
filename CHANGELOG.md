@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Support for OpenAI API completion mode.
+- Tokens per second display in generative AI response logs.
+
 ### Changed
 
 - The format of the current time passed to the system prompt template.

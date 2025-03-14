@@ -4,17 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/shared"
 )
 
 type OpenAI struct {
 	Client           *openai.Client
 	Model            string
-	ReasoningEffort  string
 	FrequencyPenalty float64
 	PresencePenalty  float64
+	ReasoningEffort  string
 	Temperature      float64
 	TopP             float64
 }
@@ -23,9 +25,9 @@ type OpenAIConfig struct {
 	BaseURL          string
 	APIKey           string
 	Model            string
-	ReasoningEffort  string
 	FrequencyPenalty float64
 	PresencePenalty  float64
+	ReasoningEffort  string
 	Temperature      float64
 	TopP             float64
 }
@@ -55,9 +57,9 @@ func newOpenAIClient(config ProviderConfig) (GenerativeAI, error) {
 			option.WithAPIKey(cfg.APIKey),
 		),
 		Model:            cfg.Model,
-		ReasoningEffort:  cfg.ReasoningEffort,
 		FrequencyPenalty: cfg.FrequencyPenalty,
 		PresencePenalty:  cfg.PresencePenalty,
+		ReasoningEffort:  cfg.ReasoningEffort,
 		Temperature:      cfg.Temperature,
 		TopP:             cfg.TopP,
 	}, nil
@@ -65,38 +67,50 @@ func newOpenAIClient(config ProviderConfig) (GenerativeAI, error) {
 
 // Chat generates a response from Ollama using a conversation history.
 func (o *OpenAI) Chat(messages []Message) (string, GenerateStats, error) {
-	param := openai.ChatCompletionNewParams{
-		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{}),
-		Seed:     openai.Int(1),
-		Model:    openai.F(openai.ChatModelGPT4o),
+	params := openai.ChatCompletionNewParams{
+		Messages:         openai.F([]openai.ChatCompletionMessageParamUnion{}),
+		Model:            openai.F(o.Model),
+		FrequencyPenalty: openai.F(o.FrequencyPenalty),
+		PresencePenalty:  openai.F(o.PresencePenalty),
+		ReasoningEffort:  openai.F(openai.ChatCompletionReasoningEffort(o.ReasoningEffort)),
+		Temperature:      openai.F(o.Temperature),
+		TopP:             openai.F(o.TopP),
 	}
 
 	for _, message := range messages {
 		switch message.Role {
 		case "user":
-			param.Messages.Value = append(param.Messages.Value, openai.UserMessage(message.Content))
+			params.Messages.Value = append(
+				params.Messages.Value,
+				openai.UserMessage(message.Content),
+			)
 		case "assistant":
-			param.Messages.Value = append(
-				param.Messages.Value,
+			params.Messages.Value = append(
+				params.Messages.Value,
 				openai.AssistantMessage(message.Content),
 			)
 		case "system":
-			param.Messages.Value = append(
-				param.Messages.Value,
+			params.Messages.Value = append(
+				params.Messages.Value,
 				openai.SystemMessage(message.Content),
 			)
 		default:
-			param.Messages.Value = append(param.Messages.Value, openai.UserMessage(message.Content))
+			params.Messages.Value = append(
+				params.Messages.Value,
+				openai.UserMessage(message.Content),
+			)
 		}
 	}
 
+	startTime := time.Now()
 	chatCompletion, err := o.Client.Chat.Completions.New(
 		context.Background(),
-		param,
+		params,
 	)
 	if err != nil {
 		return "", GenerateStats{}, fmt.Errorf("OpenAI failed to generate chat completion: %w", err)
 	}
+	duration := time.Since(startTime)
 
 	if len(chatCompletion.Choices) == 0 {
 		return "", GenerateStats{}, errors.New("OpenAI chat completion returned no choices")
@@ -105,17 +119,53 @@ func (o *OpenAI) Chat(messages []Message) (string, GenerateStats, error) {
 
 	genStats := GenerateStats{
 		DoneReason:         string(choice.FinishReason),
-		TotalDuration:      -1,
+		TotalDuration:      duration,
 		LoadDuration:       -1,
 		PromptTokens:       chatCompletion.Usage.PromptTokens,
 		PromptEvalDuration: -1,
 		TokenCount:         chatCompletion.Usage.CompletionTokens,
-		EvalDuration:       -1,
+		EvalDuration:       duration,
 	}
 
 	return choice.Message.Content, genStats, nil
 }
 
-func (o *OpenAI) Complete(_ string) (string, GenerateStats, error) {
-	return "", GenerateStats{}, errors.New("completion mode is not supported by OpenAI")
+func (o *OpenAI) Complete(prompt string) (string, GenerateStats, error) {
+	params := openai.CompletionNewParams{
+		Model: openai.F(openai.CompletionNewParamsModel(o.Model)),
+		Prompt: openai.F[openai.CompletionNewParamsPromptUnion](
+			shared.UnionString(prompt),
+		),
+		FrequencyPenalty: openai.F(o.FrequencyPenalty),
+		PresencePenalty:  openai.F(o.PresencePenalty),
+		Temperature:      openai.F(o.Temperature),
+		TopP:             openai.F(o.TopP),
+	}
+
+	startTime := time.Now()
+	chatCompletion, err := o.Client.Completions.New(
+		context.Background(),
+		params,
+	)
+	if err != nil {
+		return "", GenerateStats{}, fmt.Errorf("OpenAI failed to generate completion: %w", err)
+	}
+	duration := time.Since(startTime)
+
+	if len(chatCompletion.Choices) == 0 {
+		return "", GenerateStats{}, errors.New("OpenAI completion returned no choices")
+	}
+	choice := chatCompletion.Choices[0]
+
+	genStats := GenerateStats{
+		DoneReason:         string(choice.FinishReason),
+		TotalDuration:      duration,
+		LoadDuration:       -1,
+		PromptTokens:       chatCompletion.Usage.PromptTokens,
+		PromptEvalDuration: -1,
+		TokenCount:         chatCompletion.Usage.CompletionTokens,
+		EvalDuration:       duration,
+	}
+
+	return choice.Text, genStats, nil
 }

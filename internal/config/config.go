@@ -81,9 +81,9 @@ func setDefaultValues() {
 	// OpenAI defaults
 	viper.SetDefault("openai.base_url", "https://api.openai.com/v1/")
 	viper.SetDefault("openai.model", "gpt-4o")
-	viper.SetDefault("openai.reasoning_effort", "medium")
 	viper.SetDefault("openai.frequency_penalty", 0.0)
 	viper.SetDefault("openai.presence_penalty", 0.0)
+	viper.SetDefault("openai.reasoning_effort", "medium")
 	viper.SetDefault("openai.temperature", 1.0)
 	viper.SetDefault("openai.top_p", 1.0)
 }
@@ -126,9 +126,9 @@ func createOpenAIConfig() (*genai.OpenAIConfig, error) {
 		BaseURL:          openaiBaseURL,
 		APIKey:           openaiAPIKey,
 		Model:            openaiModel,
-		ReasoningEffort:  viper.GetString("openai.reasoning_effort"),
 		FrequencyPenalty: viper.GetFloat64("openai.frequency_penalty"),
 		PresencePenalty:  viper.GetFloat64("openai.presence_penalty"),
+		ReasoningEffort:  viper.GetString("openai.reasoning_effort"),
 		Temperature:      viper.GetFloat64("openai.temperature"),
 		TopP:             viper.GetFloat64("openai.top_p"),
 	}, nil
@@ -140,9 +140,6 @@ func createProviderConfig(provider genai.Provider, mode genai.Mode) (genai.Provi
 	case genai.ProviderOllama:
 		return createOllamaConfig(), nil
 	case genai.ProviderOpenAI:
-		if mode == genai.ModeCompletion {
-			return nil, errors.New("OpenAI provider does not support completion mode")
-		}
 		config, err := createOpenAIConfig()
 		if err != nil {
 			return nil, err

@@ -633,6 +633,7 @@ func (t *Tellama) generateResponse(
 		Str("response", strings.ReplaceAll(response, "\n", "\\n")).
 		Str("duration", genStats.TotalDuration.String()).
 		Int64("tokens", genStats.TokenCount).
+		Float32("tokens/s", float32(genStats.TokenCount)/float32(genStats.EvalDuration.Seconds())).
 		Msg("Generative AI response")
 
 	// Remove reasoning content

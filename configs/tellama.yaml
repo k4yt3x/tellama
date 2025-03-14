@@ -87,9 +87,9 @@ openai:
   model: gpt-4o
 
   # The OpenAI request options
-  # reasoning_effort: medium
   # frequency_penalty: 0.0
   # presence_penalty: 0.0
+  # reasoning_effort: medium
   # temperature: 1.0
   # top_p: 1.0
 
