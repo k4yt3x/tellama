@@ -9,8 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- OpenAI max tokens and stop sequence configuration options.
 - Support for OpenAI API completion mode.
 - Tokens per second display in generative AI response logs.
+- Typing indicator for the bot while waiting for a response from the generative AI.
 
 ### Changed
 
@@ -20,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The issue where a faulty prompt template would cause the program to panic.
 - The issue where the `/getconfig` command JSON code block was missing a newline character.
 
 ## [0.3.0] - 2025-03-02

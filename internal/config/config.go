@@ -82,6 +82,7 @@ func setDefaultValues() {
 	viper.SetDefault("openai.base_url", "https://api.openai.com/v1/")
 	viper.SetDefault("openai.model", "gpt-4o")
 	viper.SetDefault("openai.frequency_penalty", 0.0)
+	viper.SetDefault("openai.max_tokens", -1)
 	viper.SetDefault("openai.presence_penalty", 0.0)
 	viper.SetDefault("openai.reasoning_effort", "medium")
 	viper.SetDefault("openai.temperature", 1.0)
@@ -127,15 +128,17 @@ func createOpenAIConfig() (*genai.OpenAIConfig, error) {
 		APIKey:           openaiAPIKey,
 		Model:            openaiModel,
 		FrequencyPenalty: viper.GetFloat64("openai.frequency_penalty"),
+		MaxTokens:        viper.GetInt64("openai.max_tokens"),
 		PresencePenalty:  viper.GetFloat64("openai.presence_penalty"),
 		ReasoningEffort:  viper.GetString("openai.reasoning_effort"),
+		Stop:             viper.GetString("openai.stop"),
 		Temperature:      viper.GetFloat64("openai.temperature"),
 		TopP:             viper.GetFloat64("openai.top_p"),
 	}, nil
 }
 
 // createProviderConfig creates the provider-specific configuration.
-func createProviderConfig(provider genai.Provider, mode genai.Mode) (genai.ProviderConfig, error) {
+func createProviderConfig(provider genai.Provider) (genai.ProviderConfig, error) {
 	switch provider {
 	case genai.ProviderOllama:
 		return createOllamaConfig(), nil
@@ -204,7 +207,7 @@ func Load(configPath string) (*Config, error) {
 		Msg("Allow concurrent generative AI requests")
 
 	// Set provider-specific config
-	config.GenerativeAI.Config, err = createProviderConfig(provider, mode)
+	config.GenerativeAI.Config, err = createProviderConfig(provider)
 	if err != nil {
 		return nil, err
 	}

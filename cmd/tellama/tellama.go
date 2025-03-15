@@ -195,7 +195,7 @@ func (t *Tellama) delSysPrompt(ctx telebot.Context) error {
 	return ctx.Reply("Prompt deleted successfully.")
 }
 
-func (t *Tellama) getConfig(ctx telebot.Context) error {
+func (t *Tellama) getConfig(ctx telebot.Context) error { //nolint:funlen
 	chat := ctx.Chat()
 	msg := ctx.Message()
 	if chat == nil || msg == nil {
@@ -224,11 +224,7 @@ func (t *Tellama) getConfig(ctx telebot.Context) error {
 		return ctx.Reply(t.responseMessages.InternalError)
 	}
 
-	config := map[string]any{}
-
 	// Marshal the config struct to JSON then unmarshal to map to get all fields
-	var providerConfig map[string]any
-	var configBytes []byte
 	var providerName string
 	var configObj any
 	var ok bool
@@ -239,7 +235,10 @@ func (t *Tellama) getConfig(ctx telebot.Context) error {
 		configObj, ok = genaiConfig.(*genai.OllamaConfig)
 	case genai.ProviderOpenAI:
 		providerName = "openai"
-		configObj, ok = genaiConfig.(*genai.OpenAIConfig)
+		var openaiConfig *genai.OpenAIConfig
+		openaiConfig, ok = genaiConfig.(*genai.OpenAIConfig)
+		openaiConfig.APIKey = "sk-proj-************************************************"
+		configObj = openaiConfig
 	}
 
 	if !ok || configObj == nil {
@@ -247,19 +246,21 @@ func (t *Tellama) getConfig(ctx telebot.Context) error {
 	}
 
 	// Marshal the config to JSON
-	configBytes, err = json.Marshal(configObj)
+	configBytes, err := json.Marshal(configObj)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to marshal %s configuration", providerName)
 		return ctx.Reply("Failed to serialize configuration")
 	}
 
 	// Unmarshal into a map to get all fields
+	var providerConfig map[string]any
 	err = json.Unmarshal(configBytes, &providerConfig)
 	if err != nil {
 		log.Error().Err(err).Msgf("Failed to unmarshal %s configuration", providerName)
 		return ctx.Reply("Failed to process configuration")
 	}
 
+	config := map[string]any{}
 	config["provider"] = providerName
 	config[providerName] = providerConfig
 
@@ -398,6 +399,30 @@ func (t *Tellama) processMessage(
 		return ctx.Reply(t.responseMessages.InternalError)
 	}
 
+	// Send typing notification to the chat at intervals
+	stopTyping := make(chan struct{})
+	go func() {
+		_ = ctx.Bot().Notify(chat, telebot.Typing)
+
+		// Create a ticker to send typing notifications at intervals
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				_ = ctx.Bot().Notify(chat, telebot.Typing)
+			case <-stopTyping:
+				return
+			case <-time.After(60 * time.Second):
+				return
+			}
+		}
+	}()
+
+	// Ensure we stop the typing notifications when done
+	defer close(stopTyping)
+
 	response, err := t.generateResponse(messages, genaiClient)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to generate response")
@@ -492,9 +517,11 @@ func (t *Tellama) appendCurrentMessages(
 	}
 
 	// Add system prompt
-	systemPromptTemplate := template.Must(
-		template.New("sysprompt").Parse(systemPromptTemplateString),
-	)
+	systemPromptTemplate, err := template.New("sysprompt").Parse(systemPromptTemplateString)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to parse system prompt template")
+		return nil, err
+	}
 
 	// Inject context information into the system prompt template
 	contextInfo := map[string]any{
@@ -509,7 +536,7 @@ func (t *Tellama) appendCurrentMessages(
 	}
 
 	var systemPrompt bytes.Buffer
-	err := systemPromptTemplate.Execute(&systemPrompt, contextInfo)
+	err = systemPromptTemplate.Execute(&systemPrompt, contextInfo)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to execute system prompt template")
 		return nil, err
@@ -608,7 +635,12 @@ func (t *Tellama) generateResponse(
 		}
 	case genai.ModeCompletion:
 		// Load the prompt template
-		promptTemplate := template.Must(template.New("prompt").Parse(t.genaiTemplate))
+		var promptTemplate *template.Template
+		promptTemplate, err = template.New("prompt").Parse(t.genaiTemplate)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to parse prompt template")
+			return "", err
+		}
 
 		// Render the prompt to be sent to the generative AI
 		var prompt bytes.Buffer

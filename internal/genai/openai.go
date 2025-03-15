@@ -15,8 +15,10 @@ type OpenAI struct {
 	Client           *openai.Client
 	Model            string
 	FrequencyPenalty float64
+	MaxTokens        int64
 	PresencePenalty  float64
 	ReasoningEffort  string
+	Stop             string
 	Temperature      float64
 	TopP             float64
 }
@@ -26,8 +28,10 @@ type OpenAIConfig struct {
 	APIKey           string
 	Model            string
 	FrequencyPenalty float64
+	MaxTokens        int64
 	PresencePenalty  float64
 	ReasoningEffort  string
+	Stop             string
 	Temperature      float64
 	TopP             float64
 }
@@ -58,8 +62,10 @@ func newOpenAIClient(config ProviderConfig) (GenerativeAI, error) {
 		),
 		Model:            cfg.Model,
 		FrequencyPenalty: cfg.FrequencyPenalty,
+		MaxTokens:        cfg.MaxTokens,
 		PresencePenalty:  cfg.PresencePenalty,
 		ReasoningEffort:  cfg.ReasoningEffort,
+		Stop:             cfg.Stop,
 		Temperature:      cfg.Temperature,
 		TopP:             cfg.TopP,
 	}, nil
@@ -68,13 +74,17 @@ func newOpenAIClient(config ProviderConfig) (GenerativeAI, error) {
 // Chat generates a response from Ollama using a conversation history.
 func (o *OpenAI) Chat(messages []Message) (string, GenerateStats, error) {
 	params := openai.ChatCompletionNewParams{
-		Messages:         openai.F([]openai.ChatCompletionMessageParamUnion{}),
-		Model:            openai.F(o.Model),
-		FrequencyPenalty: openai.F(o.FrequencyPenalty),
-		PresencePenalty:  openai.F(o.PresencePenalty),
-		ReasoningEffort:  openai.F(openai.ChatCompletionReasoningEffort(o.ReasoningEffort)),
-		Temperature:      openai.F(o.Temperature),
-		TopP:             openai.F(o.TopP),
+		Messages:            openai.F([]openai.ChatCompletionMessageParamUnion{}),
+		Model:               openai.F(o.Model),
+		FrequencyPenalty:    openai.F(o.FrequencyPenalty),
+		MaxCompletionTokens: openai.F(o.MaxTokens),
+		PresencePenalty:     openai.F(o.PresencePenalty),
+		ReasoningEffort:     openai.F(openai.ChatCompletionReasoningEffort(o.ReasoningEffort)),
+		Stop: openai.F[openai.ChatCompletionNewParamsStopUnion](
+			shared.UnionString(o.Stop),
+		),
+		Temperature: openai.F(o.Temperature),
+		TopP:        openai.F(o.TopP),
 	}
 
 	for _, message := range messages {
@@ -137,7 +147,9 @@ func (o *OpenAI) Complete(prompt string) (string, GenerateStats, error) {
 			shared.UnionString(prompt),
 		),
 		FrequencyPenalty: openai.F(o.FrequencyPenalty),
+		MaxTokens:        openai.F(o.MaxTokens),
 		PresencePenalty:  openai.F(o.PresencePenalty),
+		Stop:             openai.F[openai.CompletionNewParamsStopUnion](shared.UnionString(o.Stop)),
 		Temperature:      openai.F(o.Temperature),
 		TopP:             openai.F(o.TopP),
 	}
