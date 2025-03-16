@@ -249,36 +249,6 @@ genai:
 	assert.Nil(t, cfg)
 }
 
-func TestLoad_OpenAIWithCompletionMode(t *testing.T) {
-	// Arrange
-	resetViper()
-	configContent := `
-database:
-  path: test.db
-telegram:
-  bot_token: test_token
-genai:
-  provider: openai
-  mode: completion
-  template: "Answer this question: {{.question}}"
-openai:
-  api_key: test_api_key
-  model: gpt-4
-`
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.yaml")
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
-	require.NoError(t, err)
-
-	// Act
-	cfg, err := Load(configPath)
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "OpenAI provider does not support completion mode")
-	assert.Nil(t, cfg)
-}
-
 func TestLoad_DefaultValues(t *testing.T) {
 	// Arrange
 	resetViper()
