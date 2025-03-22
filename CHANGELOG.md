@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - OpenAI max tokens and stop sequence configuration options.
 - Support for OpenAI API completion mode.
+- The `add` and `sub` functions for prompt template rendering.
+- The feature to ignore messages starting with `//`.
 - Tokens per second display in generative AI response logs.
 - Typing indicator for the bot while waiting for a response from the generative AI.
 

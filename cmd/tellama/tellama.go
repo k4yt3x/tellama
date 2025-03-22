@@ -326,6 +326,12 @@ func (t *Tellama) handleMessage(ctx telebot.Context) error {
 		return nil
 	}
 
+	// Ignore messages that start with "//"
+	if strings.HasPrefix(message.Text, "//") {
+		log.Info().Msg("Ignored commented message")
+		return nil
+	}
+
 	// Get historical messages for the chat
 	messages, err := t.dm.GetMessages(chat.ID, t.historyFetchLimit)
 	if err != nil {
@@ -485,7 +491,7 @@ func (t *Tellama) shouldProcessMessage(chat *telebot.Chat, msg *telebot.Message)
 	}
 
 	if chat.Type != telebot.ChatPrivate && !isReplyToBot &&
-		!strings.HasPrefix(strings.ToLower(msg.Text), "@"+strings.ToLower(t.bot.Me.Username)) {
+		!strings.Contains(strings.ToLower(msg.Text), "@"+strings.ToLower(t.bot.Me.Username)) {
 		return false
 	}
 	return true
@@ -634,9 +640,19 @@ func (t *Tellama) generateResponse(
 			return "", err
 		}
 	case genai.ModeCompletion:
+		// Create a function map with utility functions
+		funcMap := template.FuncMap{
+			"add": func(a, b int) int {
+				return a + b
+			},
+			"sub": func(a, b int) int {
+				return a - b
+			},
+		}
+
 		// Load the prompt template
 		var promptTemplate *template.Template
-		promptTemplate, err = template.New("prompt").Parse(t.genaiTemplate)
+		promptTemplate, err = template.New("prompt").Funcs(funcMap).Parse(t.genaiTemplate)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to parse prompt template")
 			return "", err
