@@ -7,6 +7,8 @@
 # Tellama local configuration files
 tellama.yaml
 tellama.yml
+tellama.*.yaml
+tellama.*.yml
 
 # Tellama database files
 *.db
