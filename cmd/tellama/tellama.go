@@ -462,6 +462,9 @@ func (t *Tellama) checkPermissions(
 	user *telebot.User,
 	message *telebot.Message,
 ) bool {
+	// Construct full name from first and last name
+	fullName := strings.TrimSpace(user.FirstName + " " + user.LastName)
+
 	// Log the received message
 	log.Info().
 		Int64("chat_id", chat.ID).
@@ -469,6 +472,7 @@ func (t *Tellama) checkPermissions(
 		Str("chat_type", string(chat.Type)).
 		// Int64("sender_id", user.ID).
 		Str("username", user.Username).
+		Str("full_name", fullName).
 		// Int("message_id", message.ID).
 		Str("text", message.Text).
 		Msg("Received message")
