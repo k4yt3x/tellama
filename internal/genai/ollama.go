@@ -83,12 +83,12 @@ func (o *Ollama) Chat(messages []Message) (string, GenerateStats, error) {
 
 	genStats := GenerateStats{
 		DoneReason:         chatResp.DoneReason,
-		TotalDuration:      chatResp.Metrics.TotalDuration,
-		LoadDuration:       chatResp.Metrics.LoadDuration,
-		PromptTokens:       int64(chatResp.Metrics.PromptEvalCount),
-		PromptEvalDuration: chatResp.Metrics.PromptEvalDuration,
-		TokenCount:         int64(chatResp.Metrics.EvalCount),
-		EvalDuration:       chatResp.Metrics.EvalDuration,
+		TotalDuration:      chatResp.TotalDuration,
+		LoadDuration:       chatResp.LoadDuration,
+		PromptTokens:       int64(chatResp.PromptEvalCount),
+		PromptEvalDuration: chatResp.PromptEvalDuration,
+		TokenCount:         int64(chatResp.EvalCount),
+		EvalDuration:       chatResp.EvalDuration,
 	}
 
 	return responseBuilder.String(), genStats, nil
@@ -120,12 +120,12 @@ func (o *Ollama) Complete(prompt string) (string, GenerateStats, error) {
 
 	genStats := GenerateStats{
 		DoneReason:         generateResp.DoneReason,
-		TotalDuration:      generateResp.Metrics.TotalDuration,
-		LoadDuration:       generateResp.Metrics.LoadDuration,
-		PromptTokens:       int64(generateResp.Metrics.PromptEvalCount),
-		PromptEvalDuration: generateResp.Metrics.PromptEvalDuration,
-		TokenCount:         int64(generateResp.Metrics.EvalCount),
-		EvalDuration:       generateResp.Metrics.EvalDuration,
+		TotalDuration:      generateResp.TotalDuration,
+		LoadDuration:       generateResp.LoadDuration,
+		PromptTokens:       int64(generateResp.PromptEvalCount),
+		PromptEvalDuration: generateResp.PromptEvalDuration,
+		TokenCount:         int64(generateResp.EvalCount),
+		EvalDuration:       generateResp.EvalDuration,
 	}
 
 	return response, genStats, nil
