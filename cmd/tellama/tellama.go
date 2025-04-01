@@ -227,7 +227,7 @@ func (t *Tellama) getConfig(ctx telebot.Context) error { //nolint:funlen
 	// Marshal the config struct to JSON then unmarshal to map to get all fields
 	var providerName string
 	var configObj any
-	var ok bool
+	ok := false
 
 	switch t.genaiProvider {
 	case genai.ProviderOllama:
@@ -237,8 +237,12 @@ func (t *Tellama) getConfig(ctx telebot.Context) error { //nolint:funlen
 		providerName = "openai"
 		var openaiConfig *genai.OpenAIConfig
 		openaiConfig, ok = genaiConfig.(*genai.OpenAIConfig)
-		openaiConfig.APIKey = "sk-proj-************************************************"
-		configObj = openaiConfig
+		if !ok || openaiConfig == nil {
+			break
+		}
+		maskedConfig := *openaiConfig
+		maskedConfig.APIKey = "sk-proj-************************************************"
+		configObj = &maskedConfig
 	}
 
 	if !ok || configObj == nil {
